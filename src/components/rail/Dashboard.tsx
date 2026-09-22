@@ -42,7 +42,7 @@ export default function Dashboard() {
     toast.error("Critical congestion detected", { description: "Train 12951 AI ETA revised to 21:39." });
   }
 
-  return <div className="min-h-screen bg-background text-foreground">
+  return <div className="min-h-screen overflow-x-hidden bg-background text-foreground">
     <Toaster position="top-right" theme={dark ? "dark" : "light"} />
     <header className="sticky top-0 z-40 flex h-16 items-center border-b border-border bg-background/95 px-3 backdrop-blur-md lg:px-5">
       <button className="flex min-w-fit items-center gap-3" onClick={() => setView("Dashboard")}><span className="flex size-9 items-center justify-center bg-primary text-primary-foreground"><TrainFront className="size-5" /></span><span className="text-left"><b className="block text-sm tracking-wide">RailPredict <span className="text-primary">AI</span></b><small className="hidden text-[9px] uppercase tracking-[.16em] text-muted-foreground sm:block">Railway Intelligence System</small></span></button>
@@ -51,7 +51,7 @@ export default function Dashboard() {
     </header>
     <div className="flex">
       <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-16 shrink-0 flex-col items-center border-r border-border bg-sidebar py-3 md:flex">{nav.map((item, i) => { const I = [Gauge, TrainFront, BrainCircuit, Network, ActivityIcon, ShieldCheck, AlertTriangle, Zap][i] ?? Gauge; return <button title={item} key={item} onClick={() => setView(item)} className={`mb-1 flex size-10 items-center justify-center border-l-2 transition-colors ${view === item ? "border-primary bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"}`}><I className="size-4" /></button>; })}<div className="mt-auto [writing-mode:vertical-rl] text-[8px] uppercase tracking-[.2em] text-muted-foreground">Ministry of Railways · SIH26028</div></aside>
-      <main className="min-w-0 flex-1 p-3 lg:p-4">
+      <main className="w-0 min-w-0 flex-1 p-3 lg:p-4">
         <div className="mx-auto max-w-[1700px]">
           <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><div className="mb-2 flex flex-wrap items-center gap-2"><DemoBadge /><span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">SIH 2026 · SIH26028</span></div><h1 className="text-xl font-semibold tracking-normal sm:text-2xl">{view === "Dashboard" ? "Dynamic ETA Intelligence & Railway Operations Dashboard" : view}</h1></div><SimulationControls running={running} setRunning={setRunning} simMode={simMode} setSimMode={setSimMode} speed={speed} setSpeed={setSpeed} onReset={() => { setTick(0); setCongestion(false); toast.success("Simulation reset"); }} /></div>
           {view === "Dashboard" && <DashboardView selected={liveSelected} setSelected={setSelected} tick={tick} congestion={congestion} triggerCongestion={triggerCongestion} query={query} setQuery={setQuery} filtered={filtered} />}
