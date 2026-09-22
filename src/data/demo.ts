@@ -20,7 +20,7 @@ export type Train = {
   y: number;
 };
 
-export const trains: Train[] = [
+export const trains: [Train, ...Train[]] = [
   { number: "12951", name: "Mumbai Central – New Delhi Rajdhani", shortName: "Mumbai Rajdhani", current: "Vadodara Junction", next: "Ratlam Junction", destination: "New Delhi", speed: 104, delay: 18, scheduled: "21:42", currentEta: "21:42", aiEta: "21:31", confidence: 94, range: "21:27 – 21:35", progress: 44, status: "minor", x: 38, y: 54 },
   { number: "12952", name: "New Delhi – Mumbai Central Rajdhani", shortName: "Mumbai Rajdhani", current: "Kota Junction", next: "Ratlam Junction", destination: "Mumbai Central", speed: 92, delay: 42, scheduled: "08:35", currentEta: "09:17", aiEta: "09:09", confidence: 88, range: "09:04 – 09:14", progress: 61, status: "significant", x: 53, y: 31 },
   { number: "12932", name: "Ahmedabad – Mumbai Central Double Decker", shortName: "Double Decker", current: "Bharuch Junction", next: "Surat", destination: "Mumbai Central", speed: 87, delay: 9, scheduled: "22:12", currentEta: "22:21", aiEta: "22:18", confidence: 96, range: "22:16 – 22:20", progress: 36, status: "minor", x: 34, y: 64 },
