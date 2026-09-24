@@ -64,15 +64,13 @@ export default function Dashboard() {
           {view === "Alerts" && <AlertsView alerts={alerts} />}
           {view === "API / Integration" && <ArchitectureView />}
           <div className="mt-4 grid gap-4 xl:grid-cols-2"><PassengerView selected={liveSelected} /><StationDisplay /></div>
-          <footer className="mt-6 flex flex-col justify-between gap-2 border-t border-border py-5 text-[10px] uppercase tracking-wider text-muted-foreground sm:flex-row"><span>RailPredict AI · Smart India Hackathon 2026</span><span>Prototype using simulated operational data · Not affiliated with live railway systems</span></footer>
+          <footer className="mt-6 flex flex-col justify-between gap-2 border-t border-border py-5 text-[10px] uppercase tracking-wider text-muted-foreground sm:flex-row"><span>RailPredict AI</span><span>Dynamic railway operations intelligence platform</span></footer>
         </div>
       </main>
     </div>
   </div>;
 }
 
-function ActivityIcon({ className }: { className?: string }) { return <BarChartIcon className={className ?? ""} />; }
-function BarChartIcon({ className = "" }: { className?: string }) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}><path d="M3 3v18h18M7 16v2m4-7v7m4-11v11m4-5v5" /></svg>; }
 
 function SimulationControls({ running, setRunning, simMode, setSimMode, speed, setSpeed, onReset }: { running: boolean; setRunning: (v: boolean) => void; simMode: boolean; setSimMode: (v: boolean) => void; speed: number; setSpeed: (v: number) => void; onReset: () => void }) {
   return <div className="flex flex-wrap items-center gap-1.5 border border-border bg-card p-1.5"><label className="flex items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-wider"><Switch checked={simMode} onCheckedChange={setSimMode} /> Simulation</label><Button size="sm" variant={running ? "secondary" : "default"} onClick={() => setRunning(!running)}>{running ? <Pause /> : <Play />}{running ? "Pause" : "Start"}</Button><Button size="icon" variant="ghost" onClick={onReset} title="Reset simulation"><RotateCcw /></Button>{[1, 2, 5].map((v) => <Button key={v} size="sm" variant={speed === v ? "default" : "ghost"} onClick={() => setSpeed(v)}>{v}x</Button>)}</div>;
