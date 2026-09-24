@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bell, BrainCircuit, ChevronDown, CircleUserRound, Gauge, Moon, Network, Pause, Play, RotateCcw, Search, ShieldCheck, Sparkles, Sun, TrainFront, Zap } from "lucide-react";
+import { AlertTriangle, Bell, BrainCircuit, ChevronDown, CircleUserRound, Moon, Pause, Play, RotateCcw, Search, Sparkles, Sun, TrainFront, Zap } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Toaster } from "@/components/ui/sonner";
-import { DemoBadge, KpiCard, Metric, Panel, StatusDot } from "./Primitives";
+import { KpiCard, Metric, Panel, StatusDot } from "./Primitives";
 import { TrainMap } from "./TrainMap";
 import { chartData, delayFactors, initialAlerts, stations, trains as sourceTrains, zones, type Train } from "@/data/demo";
 
@@ -19,12 +19,12 @@ export default function Dashboard() {
   const [speed, setSpeed] = useState(1);
   const [tick, setTick] = useState(0);
   const [congestion, setCongestion] = useState(false);
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(false);
   const [query, setQuery] = useState("");
   const [alerts, setAlerts] = useState(initialAlerts);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("light", !dark);
+    document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
   useEffect(() => {
     if (!running || !simMode) return;
