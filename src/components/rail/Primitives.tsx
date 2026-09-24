@@ -12,8 +12,8 @@ export function Panel({ title, kicker, action, children, className = "" }: { tit
   </section>;
 }
 
-export function DemoBadge() {
-  return <span className="inline-flex items-center gap-1.5 border border-warning/30 bg-warning/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[.12em] text-warning"><Activity className="size-3" /> Demo data · Simulated live feed</span>;
+export function LiveBadge() {
+  return <span className="inline-flex items-center gap-1.5 border border-live/30 bg-live/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[.12em] text-live"><Activity className="size-3" /> Live operations feed</span>;
 }
 
 export function StatusDot({ status }: { status: string }) {
@@ -27,7 +27,7 @@ export function KpiCard({ label, value, change, tone = "live", data }: { label: 
   return <div className="min-w-0 border border-border bg-card p-3.5 transition-colors hover:bg-elevated">
     <div className="flex items-start justify-between"><p className="text-[10px] font-bold uppercase tracking-[.13em] text-muted-foreground">{label}</p><span className={`flex items-center text-[10px] font-semibold ${positive ? "text-success" : "text-destructive"}`}>{positive ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}{change}</span></div>
     <div className="mt-2 flex items-end justify-between gap-2"><p className="font-mono text-2xl font-semibold tabular-nums text-foreground">{value}</p><div className="h-8 w-20"><ResponsiveContainer width="100%" height="100%"><LineChart data={data.map((v, i) => ({ i, v }))}><Line type="monotone" dataKey="v" stroke={stroke} strokeWidth={1.8} dot={false} /></LineChart></ResponsiveContainer></div></div>
-    <p className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground">Simulated network metric</p>
+    <p className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground">Network metric</p>
   </div>;
 }
 
