@@ -188,14 +188,11 @@ export default function Dashboard() {
             <Button variant="ghost" size="icon" onClick={() => setDark((v) => !v)}>
               {dark ? <Sun /> : <Moon />}
             </Button>
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell /><i className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-destructive" />
-            </Button>
-            <CircleUserRound className="hidden size-6 text-muted-foreground sm:block" />
           </div>
         </div>
 
-        {/* simulation bar */}
+        {/* simulation bar — visible only on Dashboard and ETA Prediction */}
+        {(view === "Dashboard" || view === "ETA Prediction") && (
         <div className="flex items-center justify-between border-t border-border px-3 py-1.5 lg:px-5">
           <SimulationControls
             running={running} setRunning={setRunning}
@@ -207,6 +204,7 @@ export default function Dashboard() {
             Network Simulation Time
           </span>
         </div>
+        )}
 
         {/* nav tabs */}
         <nav className="flex items-center gap-1 overflow-x-auto border-t border-border px-2 lg:px-4 [-webkit-overflow-scrolling:touch]">
