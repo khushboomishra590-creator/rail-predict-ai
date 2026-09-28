@@ -153,6 +153,8 @@ export const api = {
  */
 export function fmtEtaTime(iso: string | null | undefined): string {
   if (!iso || iso.trim() === "") return "Not available";
+  // If it already looks like a formatted HH:MM time (not an ISO string), return as-is
+  if (/^\d{1,2}:\d{2}$/.test(iso.trim())) return iso.trim();
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return "Not available";
