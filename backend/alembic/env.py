@@ -1,0 +1,61 @@
+import sys
+from logging.config import fileConfig
+from pathlib import Path
+
+from alembic import context
+from sqlalchemy import engine_from_config, pool
+
+# Add both the backend/ dir AND the project root (railway/) to sys.path so
+# that `backend` is importable whether alembic is run from backend/ or railway/
+_here = Path(__file__).resolve().parent          # backend/alembic/
+_backend_dir = _here.parent                      # backend/
+_project_root = _backend_dir.parent              # railway/
+
+for _p in (_backend_dir, _project_root):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from backend.config import settings  # noqa: E402
+from backend.database.session import Base  # noqa: E402
+import backend.models  # noqa: E402, F401 — ensure all models are registered
+
+# Alembic Config object
+config = context.config
+
+# Inject the real DB URL from Settings (overrides the blank value in alembic.ini)
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = Base.metadata
+
+
+def run_migrations_offline() -> None:
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online() -> None:
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
