@@ -1,10 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { useTrainEta } from "@/hooks/use-train-eta";
-import { api, fmtEtaTime, type EtaResponse } from "@/lib/api";
 import {
-  AlertTriangle, Bell, BrainCircuit, ChevronDown, CircleUserRound,
-  Moon, Pause, Play, RotateCcw, Search, Sparkles, Sun, TrainFront, Zap,
-  Activity, BarChart2, FlaskConical, MapPin, Shield, Cpu, Wifi,
+  AlertTriangle, ChevronDown,
+  Moon, Search, Sun, TrainFront, MapPin,
 } from "lucide-react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell,
@@ -13,32 +10,25 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Toaster } from "@/components/ui/sonner";
-import { KpiCard, Metric, Panel, StatusDot, LiveBadge } from "./Primitives";
+import { KpiCard, Metric, Panel, StatusDot } from "./Primitives";
 import { TrainMap } from "./TrainMap";
 import { PassengerTrackerView } from "./PassengerTracker";
 import { ScenarioSandboxView } from "./ScenarioSandbox";
 import {
-  chartData, delayFactors, featureImportance, initialAlerts, journeyStops,
+  allJourneyStops, chartData, delayFactors, featureImportance, initialAlerts,
   modelTiers, networkSections, pidsRows, scenarios, stations,
   trains as sourceTrains, zones,
-  type Train,
-} from "@/data/demo";
+  type JourneyStop, type Train,
+} from "@/data/railData";
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
 const nav = [
   "Dashboard", "Live Trains", "ETA Prediction",
-  "Passenger Tracker", "Station PIDS", "Scenario Sandbox",
+  "Passenger View", "Station PIDS", "Scenario Planner",
   "Network Monitor", "Delay Analytics", "Model Performance",
   "Alerts", "API / Integration",
 ];
-
-// ─── Hindi status map ─────────────────────────────────────────────────────────
-const STATUS_HI: Record<string, string> = {
-  "on-time": "समय पर", minor: "थोड़ा विलंब",
-  significant: "विलंबित", critical: "अत्यंत विलंब",
-};
 
 // ─── Confidence colour helper ─────────────────────────────────────────────────
 function confColor(c: number) {
@@ -54,38 +44,28 @@ function confBg(c: number) {
 export default function Dashboard() {
   const [view, setView] = useState("Dashboard");
   const [selected, setSelected] = useState(sourceTrains[0]);
-  const [running, setRunning] = useState(true);
-  const [simMode, setSimMode] = useState(true);
-  const [speed, setSpeed] = useState(1);
-  const [tick, setTick] = useState(0);
   const [congestion, setCongestion] = useState(false);
   const [dark, setDark] = useState(true);
   const [query, setQuery] = useState("");
   const [alerts, setAlerts] = useState(initialAlerts);
   const [activeScenarios, setActiveScenarios] = useState<string[]>([]);
-
-  // ── M4 API — real ETA for train 12951 only ──────────────────────────────────
-  const { state: etaState, refresh: refreshEta } = useTrainEta("12951");
-  const liveEta: EtaResponse | null =
-    etaState.status === "ok" ? etaState.data : null;
+  const [clock, setClock] = useState(() => new Date());
 
   useEffect(() => { document.documentElement.classList.toggle("dark", dark); }, [dark]);
   useEffect(() => {
-    if (!running || !simMode) return;
-    const id = window.setInterval(() => setTick((v) => v + 1), 3000 / speed);
+    const id = window.setInterval(() => setClock(new Date()), 1000);
     return () => window.clearInterval(id);
-  }, [running, simMode, speed]);
+  }, []);
 
   const liveSelected = useMemo(() => ({
     ...selected,
-    speed: Math.max(48, selected.speed + ((tick % 5) - 2)),
-    confidence: Math.max(78, selected.confidence - (congestion ? 6 : 0) + (tick % 2)),
+    confidence: Math.max(78, selected.confidence - (congestion ? 6 : 0)),
     delay: selected.delay + (congestion ? 8 : 0),
     aiEta: congestion && selected.number === "12951" ? "22:01" : selected.aiEta,
     aiEtaLower: congestion && selected.number === "12951" ? "21:56" : selected.aiEtaLower,
     aiEtaUpper: congestion && selected.number === "12951" ? "22:06" : selected.aiEtaUpper,
     range: congestion && selected.number === "12951" ? "21:56 – 22:06" : selected.range,
-  }), [selected, tick, congestion]);
+  }), [selected, congestion]);
 
   const filtered = sourceTrains.filter(
     (t) => `${t.number} ${t.name} ${t.current}`.toLowerCase().includes(query.toLowerCase())
@@ -127,7 +107,7 @@ export default function Dashboard() {
       {/* ── Top alert banner ── */}
       <div className="bg-destructive/90 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white flex items-center justify-between">
         <span>⚠ NCR DIVISION: Dense fog advisory active between Delhi &amp; Kanpur · Speed restrictions &amp; dynamic headway buffers applied</span>
-        <span className="hidden sm:block opacity-70">SIH26028 · MINISTRY OF RAILWAYS</span>
+        <span className="hidden sm:block opacity-70">MINISTRY OF RAILWAYS</span>
       </div>
 
       {/* ── Header ── */}
@@ -142,7 +122,7 @@ export default function Dashboard() {
                 RailPredict <span className="text-primary">AI</span>
               </b>
               <small className="hidden truncate text-[9px] uppercase tracking-[.16em] text-muted-foreground sm:block">
-                Dynamic ETA Intelligence · SIH-26028
+                Dynamic ETA Intelligence · Indian Railways
               </small>
             </span>
           </button>
@@ -150,12 +130,12 @@ export default function Dashboard() {
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             {/* live clock */}
             <span className="hidden font-mono text-[11px] text-foreground lg:block">
-              {String(11 + Math.floor((tick * 3) / 3600) % 12).padStart(2, "0")}:
-              {String((14 + Math.floor((tick * 3) / 60)) % 60).padStart(2, "0")}:
-              {String((tick * 3) % 60).padStart(2, "0")} IST
+              {String(clock.getHours()).padStart(2, "0")}:
+              {String(clock.getMinutes()).padStart(2, "0")}:
+              {String(clock.getSeconds()).padStart(2, "0")} IST
             </span>
-            <span className="hidden items-center gap-1.5 text-[10px] font-bold text-warning md:flex rounded border border-warning/40 bg-warning/10 px-2 py-0.5">
-              <i className="size-2 animate-pulse rounded-full bg-warning" /> DEMO — Simulated RTIS
+            <span className="hidden items-center gap-1.5 text-[10px] font-bold text-success md:flex">
+              <i className="size-2 animate-pulse rounded-full bg-success" /> LIVE
             </span>
             {/* KPIs */}
             <div className="hidden items-center divide-x divide-border border border-border lg:flex">
@@ -175,24 +155,7 @@ export default function Dashboard() {
             <Button variant="ghost" size="icon" onClick={() => setDark((v) => !v)}>
               {dark ? <Sun /> : <Moon />}
             </Button>
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell /><i className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-destructive" />
-            </Button>
-            <CircleUserRound className="hidden size-6 text-muted-foreground sm:block" />
           </div>
-        </div>
-
-        {/* simulation bar */}
-        <div className="flex items-center justify-between border-t border-border px-3 py-1.5 lg:px-5">
-          <SimulationControls
-            running={running} setRunning={setRunning}
-            simMode={simMode} setSimMode={setSimMode}
-            speed={speed} setSpeed={setSpeed}
-            onReset={() => { setTick(0); setCongestion(false); setActiveScenarios([]); toast.success("Simulation reset"); }}
-          />
-          <span className="hidden text-[9px] uppercase tracking-wider text-muted-foreground sm:block">
-            Network Simulation Time
-          </span>
         </div>
 
         {/* nav tabs */}
@@ -214,12 +177,12 @@ export default function Dashboard() {
             </h1>
           </div>
 
-          {view === "Dashboard"        && <DashboardView selected={liveSelected} setSelected={setSelected} tick={tick} congestion={congestion} triggerCongestion={triggerCongestion} query={query} setQuery={setQuery} filtered={filtered} liveEta={liveEta} refreshEta={refreshEta} />}
+          {view === "Dashboard"        && <DashboardView selected={liveSelected} setSelected={setSelected} congestion={congestion} triggerCongestion={triggerCongestion} query={query} setQuery={setQuery} filtered={filtered} />}
           {view === "Live Trains"      && <LiveTrainsView query={query} setQuery={setQuery} filtered={filtered} onSelect={(t) => { setSelected(t); setView("Dashboard"); }} />}
-          {view === "ETA Prediction"   && <PredictionView selected={liveSelected} congestion={congestion} triggerCongestion={triggerCongestion} />}
-          {view === "Passenger Tracker"&& <PassengerTrackerView />}
+          {view === "ETA Prediction"   && <PredictionView selected={liveSelected} setSelected={setSelected} congestion={congestion} triggerCongestion={triggerCongestion} />}
+          {view === "Passenger View"  && <PassengerTrackerView initialTrain={liveSelected} />}
           {view === "Station PIDS"     && <StationPIDSView />}
-          {view === "Scenario Sandbox" && <ScenarioSandboxView activeScenarios={activeScenarios} onInject={injectScenario} onClear={clearScenarios} alerts={alerts} />}
+          {view === "Scenario Planner" && <ScenarioSandboxView activeScenarios={activeScenarios} onInject={injectScenario} onClear={clearScenarios} alerts={alerts} />}
           {view === "Network Monitor"  && <NetworkView congestion={congestion} />}
           {view === "Delay Analytics"  && <AnalyticsView />}
           {view === "Model Performance"&& <ModelView />}
@@ -227,7 +190,7 @@ export default function Dashboard() {
           {view === "API / Integration"&& <ArchitectureView />}
 
           <footer className="mt-6 flex flex-col justify-between gap-2 border-t border-border py-5 text-[10px] uppercase tracking-wider text-muted-foreground sm:flex-row">
-            <span>RailPredict AI · SIH-26028</span>
+            <span>RailPredict AI · Indian Railways</span>
             <span>Network-aware XGBoost · MAE 4.34 min · 29 features · 20K training rows</span>
           </footer>
         </div>
@@ -236,35 +199,12 @@ export default function Dashboard() {
   );
 }
 
-// ─── Simulation controls ──────────────────────────────────────────────────────
-function SimulationControls({ running, setRunning, simMode, setSimMode, speed, setSpeed, onReset }: {
-  running: boolean; setRunning: (v: boolean) => void; simMode: boolean;
-  setSimMode: (v: boolean) => void; speed: number; setSpeed: (v: number) => void; onReset: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 border border-border bg-card p-1.5">
-      <label className="flex items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-wider">
-        <Switch checked={simMode} onCheckedChange={setSimMode} /> Simulation
-      </label>
-      <Button size="sm" variant={running ? "secondary" : "default"} onClick={() => setRunning(!running)}>
-        {running ? <Pause /> : <Play />}{running ? "Pause" : "Start"}
-      </Button>
-      <Button size="icon" variant="ghost" onClick={onReset} title="Reset simulation"><RotateCcw /></Button>
-      {[1, 2, 5, 15].map((v) => (
-        <Button key={v} size="sm" variant={speed === v ? "default" : "ghost"} onClick={() => setSpeed(v)}>{v}x</Button>
-      ))}
-    </div>
-  );
-}
-
 // ─── Dashboard view ───────────────────────────────────────────────────────────
-function DashboardView({ selected, setSelected, tick, congestion, triggerCongestion, query, setQuery, filtered, liveEta, refreshEta }: {
-  selected: Train; setSelected: (t: Train) => void; tick: number; congestion: boolean;
+function DashboardView({ selected, setSelected, congestion, triggerCongestion, query, setQuery, filtered }: {
+  selected: Train; setSelected: (t: Train) => void; congestion: boolean;
   triggerCongestion: () => void; query: string; setQuery: (v: string) => void; filtered: Train[];
-  liveEta: EtaResponse | null; refreshEta: () => void;
 }) {
-  const spark = (n: number) => Array.from({ length: 8 }, (_, i) => n + Math.sin(i + tick) * n * 0.05);
-  const eta12951 = selected.number === "12951" ? liveEta : null;
+  const spark = (n: number) => Array.from({ length: 8 }, (_, i) => n + Math.sin(i) * n * 0.05);
   return (
     <>
       {/* KPI row */}
@@ -282,27 +222,21 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
         <Panel title="Live Railway Network" kicker="Western–Northern corridor"
           action={<span className="flex items-center gap-1.5 text-[10px] text-live"><i className="size-1.5 animate-pulse rounded-full bg-live" /> POSITION STREAM ACTIVE</span>}>
           <TrainMap
-            trains={sourceTrains.map((t, i) => ({ ...t, y: t.y + ((tick + i) % 4) * 0.25 }))}
+            trains={sourceTrains}
             selected={selected} onSelect={setSelected} congestion={congestion} />
         </Panel>
-        <TrainDetail train={selected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={eta12951} />
+        <TrainDetail train={selected} congestion={congestion} triggerCongestion={triggerCongestion} />
       </div>
-
-      {/* Capability strip */}
-      <CapabilityStrip />
 
       {/* Prediction + Factors */}
       <div className="my-4 grid gap-4 xl:grid-cols-[1.35fr_.65fr]">
-        <PredictionPanel selected={selected} congestion={congestion} liveEta={eta12951} />
+        <PredictionPanel selected={selected} congestion={congestion} />
         <FactorsPanel congestion={congestion} />
       </div>
 
-      {/* Simulated RTIS — Demo Mode: movement → M4 → M3 → ETA */}
-      <SimulatedRtisPanel refreshEta={refreshEta} />
-
       {/* Station table + Search */}
       <div className="grid gap-4 xl:grid-cols-[1.25fr_.75fr]">
-        <StationTable />
+        <StationTable selected={selected} />
         <Panel title="Train Search" kicker="Live operational feed">
           <SearchBox query={query} setQuery={setQuery} />
           <div className="divide-y divide-border">
@@ -315,9 +249,8 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
                   <p className="mt-0.5 text-[9px] text-muted-foreground">{t.zone} · {t.trainType} · {t.rake}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-mono text-xs text-live">AI {t.aiEta}</p>
-                  <p className="mt-0.5 text-[9px] text-muted-foreground">{t.aiEtaLower}–{t.aiEtaUpper}</p>
-                  <p className={`mt-1 text-[9px] ${confColor(t.confidence)}`}>{t.confidence}% CONF.</p>
+                  <p className="font-mono text-xs text-live">{t.aiEta}</p>
+                  <p className="mt-0.5 text-[9px] text-muted-foreground">{t.aiEtaLower}—{t.aiEtaUpper}</p>
                 </div>
               </button>
             ))}
@@ -335,7 +268,7 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
 }
 
 // ─── Train detail panel ───────────────────────────────────────────────────────
-function TrainDetail({ train, congestion, triggerCongestion, liveEta }: { train: Train; congestion: boolean; triggerCongestion: () => void; liveEta: EtaResponse | null }) {
+function TrainDetail({ train, congestion, triggerCongestion }: { train: Train; congestion: boolean; triggerCongestion: () => void }) {
   return (
     <Panel title={`${train.number} · ${train.shortName}`} kicker="Selected train" action={<StatusDot status={train.status} />} className="h-full">
       <div className="p-4">
@@ -343,22 +276,22 @@ function TrainDetail({ train, congestion, triggerCongestion, liveEta }: { train:
         <div className="mb-4 flex items-center gap-3 border-b border-border pb-4">
           <div className="flex size-10 items-center justify-center bg-primary/10 text-primary"><TrainFront /></div>
           <div>
-            <p className="text-sm font-semibold">{liveEta ? liveEta.current_station : train.current}</p>
-            <p className="text-[10px] text-muted-foreground">Next · {liveEta ? liveEta.next_station : train.next}</p>
+            <p className="text-sm font-semibold">{train.current}</p>
+            <p className="text-[10px] text-muted-foreground">Next · {train.next}</p>
             <p className="text-[9px] text-muted-foreground">{train.zone} · {train.trainType} · MPS {train.mps} km/h</p>
           </div>
           <div className="ml-auto text-right">
-            <p className="font-mono text-lg font-semibold">{liveEta ? liveEta.current_speed : train.speed} <span className="text-[10px] text-muted-foreground">km/h</span></p>
+            <p className="font-mono text-lg font-semibold">{train.speed} <span className="text-[10px] text-muted-foreground">km/h</span></p>
             <p className="text-[9px] uppercase text-live">Movement verified</p>
           </div>
         </div>
 
         {/* metrics grid */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-          <Metric label="Current delay"      value={liveEta ? `+${liveEta.current_delay} min` : `+${train.delay} min`} />
-          <Metric label="Scheduled ETA"      value={liveEta ? fmtEtaTime(liveEta.scheduled_eta) : train.scheduled} />
-          <Metric label="Current ETA"        value={liveEta ? fmtEtaTime(liveEta.predicted_eta) : train.currentEta} />
-          <Metric label="AI Predicted ETA"   value={liveEta ? fmtEtaTime(liveEta.predicted_eta) : train.aiEta} accent />
+          <Metric label="Current delay"      value={`+${train.delay} min`} />
+          <Metric label="Scheduled ETA"      value={train.scheduled} />
+          <Metric label="Current ETA"        value={train.currentEta} />
+          <Metric label="Predicted ETA" value={train.aiEta} accent />
         </div>
 
         {/* progress */}
@@ -372,12 +305,11 @@ function TrainDetail({ train, congestion, triggerCongestion, liveEta }: { train:
 
         {/* Forecast confidence band */}
         <div className="mt-4 border border-border bg-card/50 p-3">
-          <p className="mb-2 text-[9px] uppercase tracking-wider text-muted-foreground">Forecast Confidence Band</p>
+          <p className="mb-2 text-[9px] uppercase tracking-wider text-muted-foreground">Forecast Range</p>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div><p className="text-muted-foreground">Expected (P50)</p><p className="font-mono font-semibold text-live">+3.2 min</p></div>
             <div><p className="text-muted-foreground">Upper Risk (P90)</p><p className="font-mono font-semibold text-warning">+10.0 min</p></div>
             <div><p className="text-muted-foreground">Model MAE</p><p className="font-mono font-semibold">4.34 min</p></div>
-            <div><p className="text-muted-foreground">Confidence</p><p className={`font-mono font-semibold ${confColor(train.confidence)}`}>{train.confidence}%</p></div>
           </div>
         </div>
 
@@ -385,16 +317,15 @@ function TrainDetail({ train, congestion, triggerCongestion, liveEta }: { train:
         <div className="mt-3 border-l-2 border-live bg-live/5 p-3">
           <div className="flex justify-between">
             <span className="text-[10px] uppercase text-muted-foreground">Prediction range</span>
-            <b className={`font-mono text-[11px] ${confColor(train.confidence)}`}>{train.confidence}%</b>
           </div>
-          <p className="mt-1 font-mono text-sm">{liveEta ? `${fmtEtaTime(liveEta.eta_lower)} - ${fmtEtaTime(liveEta.eta_upper)}` : `${train.aiEtaLower} - ${train.aiEtaUpper}`}</p>
+          <p className="mt-1 font-mono text-sm">{train.aiEtaLower} — {train.aiEtaUpper}</p>
           <div className="mt-2 flex items-center gap-1">
-            <span className="text-[9px] text-muted-foreground">{liveEta ? fmtEtaTime(liveEta.eta_lower) : train.aiEtaLower}</span>
+            <span className="text-[9px] text-muted-foreground">{train.aiEtaLower}</span>
             <div className="relative h-1.5 flex-1 rounded bg-muted">
               <div className="absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-live bg-background" />
               <div className="h-full w-1/2 rounded bg-live/40" />
             </div>
-            <span className="text-[9px] text-muted-foreground">{liveEta ? fmtEtaTime(liveEta.eta_upper) : train.aiEtaUpper}</span>
+            <span className="text-[9px] text-muted-foreground">{train.aiEtaUpper}</span>
           </div>
         </div>
 
@@ -407,138 +338,17 @@ function TrainDetail({ train, congestion, triggerCongestion, liveEta }: { train:
   );
 }
 
-
-// ─── Simulated RTIS Panel ─────────────────────────────────────────────────────
-// Demo Mode: sends a simulated RTIS movement to FastAPI → PostgreSQL → M3 engine
-// then calls refreshEta() to pull the fresh prediction into the dashboard.
-function SimulatedRtisPanel({ refreshEta }: { refreshEta: () => void }) {
-  const [speed, setSpeed] = useState(90);
-  const [delay, setDelay] = useState(5);
-  const [distance, setDistance] = useState(8);
-  const [lat, setLat] = useState(22.307);
-  const [lon, setLon] = useState(73.181);
-  const [busy, setBusy] = useState(false);
-  const [lastResult, setLastResult] = useState<string | null>(null);
-
-  async function handleSimulate() {
-    setBusy(true);
-    setLastResult(null);
-    try {
-      const res = await api.postMovementUpdate("12951", {
-        train_id: "12951",
-        latitude: lat,
-        longitude: lon,
-        speed,
-        timestamp: new Date().toISOString(),
-        current_delay_min: delay,
-        current_section: "BRC_SECTION",
-        distance_to_next_station_km: distance,
-      });
-      setLastResult(`Movement #${res.movement_id} recorded. Refreshing ETA…`);
-      // Wait briefly for M3 to finish, then pull the new prediction
-      await new Promise((r) => setTimeout(r, 400));
-      refreshEta();
-      toast.success("Simulated RTIS accepted", {
-        description: `movement_id=${res.movement_id} · delay=${delay} min · speed=${speed} km/h`,
-      });
-    } catch (err) {
-      setLastResult(`Error: ${String(err)}`);
-      toast.error("RTIS update failed", { description: String(err) });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Panel
-      title="Simulated RTIS Feed"
-      kicker="DEMO MODE — Train 12951 · FastAPI → PostgreSQL → M3 Engine"
-      className="mt-4"
-      action={
-        <span className="rounded border border-warning/40 bg-warning/10 px-2 py-0.5 text-[9px] font-bold uppercase text-warning">
-          Demo Mode
-        </span>
-      }
-    >
-      <div className="p-4">
-        <p className="mb-3 text-[10px] text-muted-foreground">
-          Inject a simulated train position. The backend writes to{" "}
-          <code className="text-foreground">train_movements</code>, updates{" "}
-          <code className="text-foreground">train_runs</code>, calls M3 XGBoost, persists to{" "}
-          <code className="text-foreground">eta_predictions</code>, and returns the new ETA.
-        </p>
-
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {(
-            [
-              { label: "Speed (km/h)", value: speed, set: setSpeed, min: 0, max: 160, step: 5 },
-              { label: "Delay (min)", value: delay, set: setDelay, min: 0, max: 120, step: 1 },
-              { label: "Distance to next (km)", value: distance, set: setDistance, min: 0.5, max: 200, step: 0.5 },
-              { label: "Latitude", value: lat, set: setLat, min: 8, max: 37, step: 0.001 },
-              { label: "Longitude", value: lon, set: setLon, min: 68, max: 97, step: 0.001 },
-            ] as const
-          ).map(({ label, value, set, min, max, step }) => (
-            <label key={label} className="flex flex-col gap-1">
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</span>
-              <input
-                type="number"
-                value={value}
-                min={min}
-                max={max}
-                step={step}
-                onChange={(e) => (set as (v: number) => void)(Number(e.target.value))}
-                className="border border-input bg-background px-2 py-1.5 font-mono text-xs outline-none focus:border-primary"
-              />
-            </label>
-          ))}
-        </div>
-
-        <div className="mt-4 flex items-center gap-3">
-          <Button onClick={handleSimulate} disabled={busy} className="gap-2">
-            <Cpu className={busy ? "animate-spin" : ""} />
-            {busy ? "Sending…" : "Simulate Movement → M3 Engine"}
-          </Button>
-          {lastResult && (
-            <span className="text-[10px] text-muted-foreground">{lastResult}</span>
-          )}
-        </div>
-      </div>
-    </Panel>
-  );
-}
-
-// ─── Capability strip ─────────────────────────────────────────────────────────
-function CapabilityStrip() {
-  const items = [
-    [BrainCircuit, "Predict", "Continuously recalculates arrival time using 29 live features"],
-    [Sparkles,    "Explain",  "Attributes delay impact per factor — plain language for operators"],
-    [Zap,         "Respond",  "Revises ETAs and raises actionable alerts within seconds"],
-  ] as const;
-  return (
-    <div className="grid border border-border bg-card md:grid-cols-3">
-      {items.map(([Icon, a, b], i) => (
-        <div key={a} className={`flex items-center gap-3 p-4 ${i < 2 ? "border-b border-border md:border-b-0 md:border-r" : ""}`}>
-          <span className="flex size-9 items-center justify-center bg-primary/10 text-primary"><Icon className="size-4" /></span>
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[.14em]">{a}</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">{b}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─── Prediction panel ─────────────────────────────────────────────────────────
-function PredictionPanel({ selected, congestion, liveEta }: { selected: Train; congestion: boolean; liveEta: EtaResponse | null }) {
-  const aiEta = liveEta ? fmtEtaTime(liveEta.predicted_eta) : (congestion && selected.number === "12951" ? "22:01" : selected.aiEta);
-  const improvement = liveEta ? `${liveEta.delay_adjustment > 0 ? "+" : ""}${liveEta.delay_adjustment} min vs schedule` : (congestion ? "-1 min" : "-7 min");
+function PredictionPanel({ selected, congestion }: { selected: Train; congestion: boolean }) {
+  const aiEta = congestion && selected.number === "12951" ? "22:01" : selected.aiEta;
+  const scheduledMins = (h: string) => { const [hh,mm] = h.split(':').map(Number); return (hh??0)*60+(mm??0); };
+  const diff = scheduledMins(selected.currentEta) - scheduledMins(aiEta);
+  const improvement = diff > 0 ? `-${diff} min` : diff < 0 ? `+${Math.abs(diff)} min` : 'on time';
   return (
-    <Panel title="AI ETA Prediction" kicker="Dynamic comparison"
-      action={<span className={`font-mono text-xs ${confColor(selected.confidence)}`}>CONF {selected.confidence}%</span>}>
+    <Panel title="AI ETA Prediction">
       <div className="grid border-b border-border sm:grid-cols-3">
-        <div className="p-4"><Metric label="Scheduled ETA" value={liveEta ? fmtEtaTime(liveEta.scheduled_eta) : "18:40"} /></div>
-        <div className="border-y border-border p-4 sm:border-x sm:border-y-0"><Metric label="Current Railway ETA" value={liveEta ? fmtEtaTime(liveEta.scheduled_eta) : "18:56"} /></div>
+        <div className="p-4"><Metric label="Scheduled ETA" value={selected.scheduled} /></div>
+        <div className="border-y border-border p-4 sm:border-x sm:border-y-0"><Metric label="Current ETA" value={selected.currentEta} /></div>
         <div className="bg-live/5 p-4">
           <Metric label="AI Predicted ETA" value={aiEta} accent />
           <p className="mt-1 text-[10px] text-success">{improvement} vs current</p>
@@ -554,22 +364,19 @@ function PredictionPanel({ selected, congestion, liveEta }: { selected: Train; c
           <span className="size-3 rounded-full bg-live ring-4 ring-live/15" />
         </div>
         <div className="flex justify-between text-[9px] uppercase text-muted-foreground">
-          <span>Scheduled {liveEta ? fmtEtaTime(liveEta.scheduled_eta) : "18:40"}</span><span>Current {liveEta ? fmtEtaTime(liveEta.scheduled_eta) : "18:56"}</span>
+          <span>Scheduled {selected.scheduled}</span><span>Current {selected.currentEta}</span>
           <span className="text-live">AI {aiEta}</span>
         </div>
         {/* range bar */}
         <div className="mt-3 flex items-center gap-2 rounded border border-live/20 bg-live/5 px-3 py-2">
-          <span className="text-[9px] text-muted-foreground">{liveEta ? fmtEtaTime(liveEta.eta_lower) : selected.aiEtaLower}</span>
+          <span className="text-[9px] text-muted-foreground">{selected.aiEtaLower}</span>
           <div className="relative h-1 flex-1 rounded bg-muted">
             <div className="absolute inset-0 rounded bg-live/30" />
             <div className="absolute left-1/2 top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-live bg-background" />
           </div>
-          <span className="text-[9px] text-muted-foreground">{liveEta ? fmtEtaTime(liveEta.eta_upper) : selected.aiEtaUpper}</span>
-          <span className={`ml-1 text-[10px] font-semibold ${confColor(selected.confidence)}`}>{liveEta ? `±${liveEta.uncertainty_minutes} min` : "±5 min"}</span>
+          <span className="text-[9px] text-muted-foreground">{selected.aiEtaUpper}</span>
+          <span className="ml-1 text-[10px] text-muted-foreground">±5 min</span>
         </div>
-        <p className="mt-4 border-l-2 border-primary pl-3 text-xs leading-relaxed text-muted-foreground">
-          AI prediction dynamically updates using real-time train movement, historical sectional delays, congestion, weather, and network conditions across 29 features.
-        </p>
       </div>
     </Panel>
   );
@@ -608,48 +415,50 @@ function FactorsPanel({ congestion }: { congestion: boolean }) {
   );
 }
 
-// ─── Station table — with range, reason, confidence colour ───────────────────
-function StationTable() {
+// ─── Station table — reacts to selected train ─────────────────────────────────
+function StationTable({ selected }: { selected: Train }) {
+  const stops = allJourneyStops[selected.number] ?? [];
+  const upcoming = stops.filter((s) => s.status === "upcoming" || s.status === "current");
   return (
-    <Panel title="Upcoming Stations" kicker="Train 12951 · Mumbai Rajdhani">
+    <Panel title="Upcoming Stations" kicker={`${selected.number} · ${selected.shortName}`}>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[700px] text-left text-xs">
+        <table className="w-full min-w-[620px] text-left text-xs">
           <thead className="bg-muted/60 text-[9px] uppercase tracking-wider text-muted-foreground">
             <tr>
-              {["Station", "Scheduled", "Current ETA", "AI ETA ± Range", "Platform", "Delay", "Confidence"].map((h) => (
+              {["Station", "Scheduled", "Expected ETA (Range)", "Platform", "Delay"].map((h) => (
                 <th key={h} className="px-4 py-3 font-semibold">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {stations.map((s) => (
-              <tr key={s.station} className="hover:bg-accent">
-                <td className="px-4 py-3">
-                  <p className="font-semibold">{s.station}</p>
-                  <p className="text-[9px] text-muted-foreground">{s.stationCode}</p>
-                </td>
-                <td className="px-4 py-3 font-mono text-muted-foreground">{s.scheduled}</td>
-                <td className="px-4 py-3 font-mono">{s.current}</td>
-                <td className="px-4 py-3">
-                  <p className="font-mono font-semibold text-live">{s.ai}</p>
-                  <p className="mt-0.5 text-[9px] text-muted-foreground">{s.aiLower} – {s.aiUpper}</p>
-                </td>
-                <td className="px-4 py-3 font-mono">{s.platform}</td>
-                <td className="px-4 py-3">
-                  <span className="bg-warning/10 px-1.5 py-1 font-mono text-warning">+{s.delay} min</span>
-                  <p className="mt-1 text-[9px] text-muted-foreground">↑ {s.reason}</p>
-                </td>
-                <td className={`px-4 py-3 font-mono font-semibold ${confColor(s.confidence)}`}>{s.confidence}%</td>
-              </tr>
-            ))}
+            {upcoming.length === 0 ? (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No upcoming stops</td></tr>
+            ) : upcoming.map((s) => {
+              const isCurrent = s.status === "current";
+              return (
+                <tr key={s.station} className={`hover:bg-accent ${isCurrent ? "bg-live/5" : ""}`}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <p className={`font-semibold ${isCurrent ? "text-live" : ""}`}>{s.station}</p>
+                      {isCurrent && <span className="rounded bg-live/10 px-1.5 py-0.5 text-[9px] font-bold text-live">NOW</span>}
+                    </div>
+                    {s.code && <p className="text-[9px] text-muted-foreground">{s.code}{s.km ? ` · ${s.km} km` : ""}</p>}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-muted-foreground">{s.sch}</td>
+                  <td className="px-4 py-3 font-mono font-semibold text-live">
+                    {s.ai ? (s.lower && s.upper ? `${s.lower} – ${s.upper}` : s.ai) : <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-4 py-3 font-mono">{s.platform}</td>
+                  <td className="px-4 py-3">
+                    {s.delay != null && s.delay > 0
+                      ? <span className="bg-warning/10 px-1.5 py-1 font-mono text-warning">+{s.delay} min</span>
+                      : <span className="bg-success/10 px-1.5 py-1 font-mono text-success">On time</span>}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-      </div>
-      {/* cascade warning */}
-      <div className="border-t border-border bg-warning/5 px-4 py-2.5 text-xs">
-        ⚠ <b className="text-warning">Cascade effect:</b> Train 12952 (following) predicted to arrive
-        <span className="font-semibold text-warning"> +12 min late</span> based on this train's delay propagation.
-        Source: <span className="font-mono text-muted-foreground">calculate_route_eta()</span>
       </div>
     </Panel>
   );
@@ -674,23 +483,91 @@ function SearchBox({ query, setQuery }: { query: string; setQuery: (v: string) =
 function LiveTrainsView({ query, setQuery, filtered, onSelect }: {
   query: string; setQuery: (v: string) => void; filtered: Train[]; onSelect: (t: Train) => void;
 }) {
+  const [zoneFilter,   setZoneFilter]   = useState("All");
+  const [typeFilter,   setTypeFilter]   = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+
+  // Derive unique values from the actual dataset
+  const zones      = ["All", ...Array.from(new Set(sourceTrains.map((t) => t.zone))).sort()];
+  const trainTypes = ["All", ...Array.from(new Set(sourceTrains.map((t) => t.trainType))).sort()];
+  const statuses   = ["All", "on-time", "minor", "significant", "critical"] as const;
+  const statusLabels: Record<string, string> = {
+    "All": "All Statuses", "on-time": "On Time",
+    "minor": "Minor Delay", "significant": "Significant", "critical": "Critical",
+  };
+
+  const display = filtered.filter((t) =>
+    (zoneFilter   === "All" || t.zone      === zoneFilter) &&
+    (typeFilter   === "All" || t.trainType === typeFilter) &&
+    (statusFilter === "All" || t.status    === statusFilter)
+  );
+
+  const activeCount = [zoneFilter, typeFilter, statusFilter].filter((v) => v !== "All").length;
+
   return (
-    <Panel title="Live Train Search" kicker="1,248 active movements">
+    <Panel title="Live Train Search" kicker={`${display.length} of ${sourceTrains.length} trains shown`}>
       <SearchBox query={query} setQuery={setQuery} />
-      <div className="flex flex-wrap gap-2 border-b border-border p-3">
-        {["Zone", "Train Type", "Delay Status", "Route", "Prediction Confidence"].map((f) => (
-          <Button key={f} variant="outline" size="sm">{f}<ChevronDown /></Button>
-        ))}
+
+      {/* ── Filter row ── */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
+        <div className="flex items-center gap-1.5 border border-input bg-background px-2.5 py-1.5 text-xs">
+          <span className="text-muted-foreground">Zone</span>
+          <select
+            value={zoneFilter}
+            onChange={(e) => setZoneFilter(e.target.value)}
+            className="bg-transparent text-xs font-semibold outline-none cursor-pointer"
+          >
+            {zones.map((z) => <option key={z} value={z}>{z === "All" ? "All" : z}</option>)}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-1.5 border border-input bg-background px-2.5 py-1.5 text-xs">
+          <span className="text-muted-foreground">Type</span>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="bg-transparent text-xs font-semibold outline-none cursor-pointer"
+          >
+            {trainTypes.map((t) => <option key={t} value={t}>{t === "All" ? "All" : t}</option>)}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-1.5 border border-input bg-background px-2.5 py-1.5 text-xs">
+          <span className="text-muted-foreground">Status</span>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-transparent text-xs font-semibold outline-none cursor-pointer"
+          >
+            {statuses.map((s) => <option key={s} value={s}>{statusLabels[s]}</option>)}
+          </select>
+        </div>
+
+        {activeCount > 0 && (
+          <button
+            onClick={() => { setZoneFilter("All"); setTypeFilter("All"); setStatusFilter("All"); }}
+            className="text-[10px] text-primary underline underline-offset-2"
+          >
+            Clear ({activeCount})
+          </button>
+        )}
       </div>
+
       <div className="overflow-x-auto">
         <table className="w-full min-w-[950px] text-left text-xs">
           <thead className="bg-muted/60 text-[9px] uppercase tracking-wider text-muted-foreground">
-            <tr>{["Train", "Zone / Type", "Current location", "Destination", "Delay", "Scheduled", "AI ETA ± Range", "Confidence", "Status"].map((h) => (
+            <tr>{["Train", "Zone / Type", "Current location", "Destination", "Delay", "Scheduled", "ETA Range", "Status"].map((h) => (
               <th className="px-4 py-3" key={h}>{h}</th>
             ))}</tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {filtered.map((t) => (
+            {display.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  No trains match the selected filters.
+                </td>
+              </tr>
+            ) : display.map((t) => (
               <tr key={t.number} onClick={() => onSelect(t)} className="cursor-pointer hover:bg-accent">
                 <td className="px-4 py-4"><b>{t.number}</b><p className="mt-1 text-[10px] text-muted-foreground">{t.shortName}</p></td>
                 <td className="px-4"><p>{t.zone}</p><p className="text-[9px] text-muted-foreground">{t.trainType}</p></td>
@@ -700,10 +577,9 @@ function LiveTrainsView({ query, setQuery, filtered, onSelect }: {
                 <td className="px-4 font-mono">{t.scheduled}</td>
                 <td className="px-4">
                   <p className="font-mono font-bold text-live">{t.aiEta}</p>
-                  <p className="text-[9px] text-muted-foreground">{t.aiEtaLower}–{t.aiEtaUpper}</p>
+                  <p className="text-[9px] text-muted-foreground">{t.aiEtaLower} – {t.aiEtaUpper}</p>
                 </td>
-                <td className={`px-4 font-mono font-semibold ${confColor(t.confidence)}`}>{t.confidence}%</td>
-                <td className="px-4"><span className="flex items-center gap-2 capitalize"><StatusDot status={t.status} />{t.status}</span></td>
+                <td className="px-4"><span className="flex items-center gap-2 capitalize"><StatusDot status={t.status} />{t.status.replace("-", " ")}</span></td>
               </tr>
             ))}
           </tbody>
@@ -714,14 +590,47 @@ function LiveTrainsView({ query, setQuery, filtered, onSelect }: {
 }
 
 // ─── ETA Prediction view ──────────────────────────────────────────────────────
-function PredictionView({ selected, congestion, triggerCongestion }: { selected: Train; congestion: boolean; triggerCongestion: () => void }) {
+function PredictionView({ selected, setSelected, congestion, triggerCongestion }: { selected: Train; setSelected: (t: Train) => void; congestion: boolean; triggerCongestion: () => void }) {
+  const [etaQuery, setEtaQuery] = useState("");
+  const [showEtaDropdown, setShowEtaDropdown] = useState(false);
+
+  const etaFiltered = sourceTrains.filter((t) =>
+    `${t.number} ${t.name}`.toLowerCase().includes(etaQuery.toLowerCase())
+  );
+
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[1.3fr_.7fr]">
-        <PredictionPanel selected={selected} congestion={congestion} liveEta={null} />
-        <TrainDetail train={selected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={null} />
+      {/* Train selector */}
+      <div className="relative flex items-center gap-3 border border-border bg-card p-3">
+        <Search className="size-4 shrink-0 text-muted-foreground" />
+        <input
+          value={etaQuery}
+          onChange={(e) => { setEtaQuery(e.target.value); setShowEtaDropdown(true); }}
+          onFocus={() => setShowEtaDropdown(true)}
+          onBlur={() => setTimeout(() => setShowEtaDropdown(false), 150)}
+          placeholder={`${selected.number} · ${selected.shortName} — change train…`}
+          className="h-9 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+        />
+        {showEtaDropdown && (
+          <div className="absolute left-0 top-full z-50 w-full border border-border bg-card shadow-lg">
+            {etaFiltered.map((t) => (
+              <button key={t.number}
+                onClick={() => { setSelected(t); setShowEtaDropdown(false); setEtaQuery(""); }}
+                className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs hover:bg-accent ${t.number === selected.number ? "bg-accent" : ""}`}>
+                <span className="font-mono font-bold">{t.number}</span>
+                <span className="flex-1">{t.shortName}</span>
+                <span className="font-mono text-live">{t.aiEta}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      <Panel title="ETA Prediction Curve" kicker="Scheduled vs Current vs AI across stations">
+
+      <div className="grid gap-4 xl:grid-cols-[1.3fr_.7fr]">
+        <PredictionPanel selected={selected} congestion={congestion} />
+        <TrainDetail train={selected} congestion={congestion} triggerCongestion={triggerCongestion} />
+      </div>
+      <Panel title="ETA Prediction Curve" kicker="Scheduled vs Predicted across stations">
         <div className="h-[340px] p-4">
           <ResponsiveContainer>
             <LineChart data={chartData}>
@@ -731,13 +640,12 @@ function PredictionView({ selected, congestion, triggerCongestion }: { selected:
               <ChartTooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 0 }} />
               <Legend />
               <Line dataKey="scheduled" name="Scheduled ETA" stroke="var(--muted-foreground)" strokeDasharray="5 4" dot={false} />
-              <Line dataKey="current"   name="Current ETA"   stroke="var(--warning)"          strokeWidth={2}   dot={false} />
-              <Line dataKey="ai"        name="AI Predicted"  stroke="var(--live)"             strokeWidth={3}   />
+              <Line dataKey="ai"        name="Predicted"     stroke="var(--live)"             strokeWidth={3}   dot={{ r: 4, fill: "var(--live)" }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
       </Panel>
-      <StationTable />
+      <StationTable selected={selected} />
     </div>
   );
 }
@@ -760,13 +668,10 @@ function PassengerCard({ selected }: { selected: Train }) {
           <Metric label="Current location" value={selected.current} />
           <Metric label="Next station"     value={selected.next} />
           <Metric label="Expected arrival" value={selected.aiEta} accent />
-          <Metric label="ETA range"        value={`${selected.aiEtaLower} – ${selected.aiEtaUpper}`} />
+          <Metric label="ETA range"        value={`${selected.aiEtaLower} — ${selected.aiEtaUpper}`} />
         </div>
         <p className="mt-4 text-xs text-muted-foreground">
-          <b className="text-live">AI prediction:</b> {selected.delay > 0 ? `Train is running ${selected.delay} min late. Model predicts partial recovery — expected arrival ${selected.aiEta}.` : "Train is running on time. Model predicts on-schedule arrival."}
-        </p>
-        <p className="mt-2 text-[10px] text-muted-foreground">
-          Confidence: <span className={`font-semibold ${confColor(selected.confidence)}`}>{selected.confidence}%</span> · Uncertainty: ±5 min (P90 empirical range)
+          <b className="text-foreground">Prediction:</b> {selected.delay > 0 ? `Train is running ${selected.delay} min late. Model predicts partial recovery — expected arrival ${selected.aiEta}.` : "Train is running on time. Model predicts on-schedule arrival."}
         </p>
       </div>
     </Panel>
@@ -779,7 +684,7 @@ function StationDisplayBoard() {
     <Panel title="Station Display Board" kicker="Vadodara Junction · PIDS">
       <div className="bg-zinc-950 p-4 font-mono">
         <div className="mb-3 grid grid-cols-[1.4fr_.6fr_.6fr_.5fr_.4fr] gap-2 text-[9px] uppercase text-zinc-500">
-          <span>Train / Destination</span><span>Scheduled</span><span>AI ETA</span><span>PF</span><span>Status</span>
+          <span>Train / Destination</span><span>Scheduled</span><span>Expected</span><span>PF</span><span>Status</span>
         </div>
         {pidsRows.slice(0, 4).map((r) => {
           const statusColor = r.status === "on-time" ? "text-green-400" : r.status === "minor" ? "text-yellow-400" : r.status === "significant" ? "text-orange-400" : "text-red-400";
@@ -788,7 +693,7 @@ function StationDisplayBoard() {
             <div key={r.number} className="grid grid-cols-[1.4fr_.6fr_.6fr_.5fr_.4fr] items-center gap-2 border-t border-zinc-800 py-3 text-[10px] text-zinc-200">
               <span>
                 <b className="text-yellow-400">{r.number} {r.name}</b>
-                <small className="block text-zinc-500">{r.nameHi} · TO {r.route.split("→")[1]?.trim()}</small>
+                <small className="block text-zinc-500">TO {r.route.split("→")[1]?.trim()}</small>
               </span>
               <span className="text-zinc-400">{r.scheduled}</span>
               <span className="text-yellow-300 font-bold">{r.aiEta}</span>
@@ -809,7 +714,7 @@ function AnalyticsView() {
     <div className="grid gap-4 lg:grid-cols-2">
       <ChartPanel title="Delay Distribution (min)" data={dist} dataKey="v" />
       <ChartPanel title="Avg Delay by Railway Zone" data={zones} dataKey="delay" />
-      <Panel title="Historical vs AI Predicted Delay" kicker="Rolling 8-hour window" className="lg:col-span-2">
+      <Panel title="Historical vs Predicted Delay" kicker="Rolling 8-hour window" className="lg:col-span-2">
         <div className="h-72 p-4">
           <ResponsiveContainer>
             <AreaChart data={chartData}>
@@ -819,7 +724,7 @@ function AnalyticsView() {
               <ChartTooltip />
               <Legend />
               <Area dataKey="current" name="Current ETA" stroke="var(--warning)" fill="rgba(234,179,8,.1)" />
-              <Area dataKey="ai"      name="AI Predicted" stroke="var(--live)"   fill="rgba(59,130,246,.1)" />
+              <Area dataKey="ai"      name="Predicted" stroke="var(--live)"   fill="rgba(59,130,246,.1)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -975,7 +880,7 @@ function ModelView() {
         </Panel>
 
         {/* Actual vs predicted */}
-        <Panel title="Actual vs AI Predicted ETA" kicker="Model evaluation — test set">
+        <Panel title="Actual vs Predicted ETA" kicker="Model evaluation — test set">
           <div className="h-72 p-4">
             <ResponsiveContainer>
               <LineChart data={chartData}>
@@ -985,7 +890,7 @@ function ModelView() {
                 <ChartTooltip />
                 <Legend />
                 <Line dataKey="current" name="Actual" stroke="var(--warning)" strokeWidth={2} dot />
-                <Line dataKey="ai"      name="AI Predicted" stroke="var(--live)" strokeWidth={2} dot />
+                <Line dataKey="ai"      name="Predicted" stroke="var(--live)" strokeWidth={2} dot />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -1110,33 +1015,56 @@ function ArchitectureView() {
 function StationPIDSView() {
   const [station, setStation] = useState("VADODARA (BRC)");
   const [chimeOn, setChimeOn] = useState(true);
-  const stations_list = ["VADODARA (BRC)", "NEW DELHI (NDLS)", "MUMBAI CENTRAL (BCT)", "SURAT (ST)", "KOTA (KOTA)", "RATLAM (RTM)"];
+  const stationsList = ["VADODARA (BRC)", "NEW DELHI (NDLS)", "MUMBAI CENTRAL (BCT)", "SURAT (ST)", "KOTA (KOTA)", "RATLAM (RTM)"];
+  const stationCodeMap: Record<string, string> = {"VADODARA (BRC)":"BRC","NEW DELHI (NDLS)":"NDLS","MUMBAI CENTRAL (BCT)":"BCT","SURAT (ST)":"ST","KOTA (KOTA)":"KOTA","RATLAM (RTM)":"RTM"};
+  const activeCode = stationCodeMap[station] ?? "";
+  const visibleRows = pidsRows.filter((r) => !activeCode || r.stations.includes(activeCode));
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setClock(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
-  function announceText(r: typeof pidsRows[0]) {
-    const statusPart = r.delay > 0 ? `approximately ${r.delay} minutes behind schedule` : "on time";
-    return `Attention passengers. Train number ${r.number}, ${r.name}, arriving at Platform ${r.platform}. Expected arrival ${r.aiEta}. Train is running ${statusPart}.`;
+  function getStatusLabel(r: typeof pidsRows[0]) {
+    if (r.status === "on-time") return "ON TIME";
+    if (r.delay < 60) return `+${r.delay} min late`;
+    const h = Math.floor(r.delay / 60);
+    const m = r.delay % 60;
+    return m > 0 ? `+${h}h ${m}m late` : `+${h}h late`;
+  }
+
+  function getStatusStyle(r: typeof pidsRows[0]) {
+    if (r.status === "on-time")     return "bg-success/10 text-success border-success/30";
+    if (r.status === "minor")       return "bg-warning/10 text-warning border-warning/30";
+    if (r.status === "significant") return "bg-orange-500/10 text-orange-400 border-orange-500/30";
+    return "bg-destructive/10 text-destructive border-destructive/30";
   }
 
   return (
     <div className="space-y-4">
-      {/* controls */}
+
+      {/* Controls bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 border border-border bg-card p-3">
         <div className="flex items-center gap-3">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Select Station Display:</span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Station:</span>
           <select
             value={station}
             onChange={(e) => setStation(e.target.value)}
             className="border border-input bg-background px-3 py-1.5 text-xs font-semibold outline-none focus:border-primary"
           >
-            {stations_list.map((s) => <option key={s}>{s}</option>)}
+            {stationsList.map((s) => <option key={s}>{s}</option>)}
           </select>
         </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs text-muted-foreground">
-            {new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })} IST
+            {clock.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })} IST
           </span>
-          <Button size="sm" variant={chimeOn ? "default" : "outline"} onClick={() => setChimeOn((v) => !v)} className="gap-1.5">
-            🔔 Station Chime {chimeOn ? "ON" : "OFF"}
+          <Button
+            size="sm"
+            variant={chimeOn ? "default" : "outline"}
+            onClick={() => setChimeOn((v) => !v)}
+          >
+            Station Chime {chimeOn ? "ON" : "OFF"}
           </Button>
         </div>
       </div>
@@ -1156,107 +1084,57 @@ function StationPIDSView() {
       {/* PIDS table */}
       <div className="border border-border">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-xs">
+          <table className="w-full min-w-[700px] text-left text-xs">
             <thead className="bg-muted/60 text-[9px] uppercase tracking-wider text-muted-foreground">
               <tr>
-                {["Train No", "Train Name / गाड़ी का नाम", "Route", "Scheduled", "AI Dynamic ETA", "Conf", "Platform", "Status", "Broadcast"].map((h) => (
+                {["Train No", "Train Name", "Route", "Scheduled", "Expected (Range)", "Platform", "Status", "Announce"].map((h) => (
                   <th key={h} className="px-4 py-3 font-semibold">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {pidsRows.map((r) => {
-                const statusColor = r.status === "on-time" ? "bg-success/10 text-success border-success/30"
-                  : r.status === "minor" ? "bg-warning/10 text-warning border-warning/30"
-                  : r.status === "significant" ? "bg-orange-500/10 text-orange-400 border-orange-500/30"
-                  : "bg-destructive/10 text-destructive border-destructive/30";
-                const statusLabel = r.status === "on-time" ? "ON TIME · समय पर"
-                  : r.status === "minor" ? `+${r.delay}m · थोड़ा विलंब`
-                  : r.status === "significant" ? `+${r.delay}m · विलंबित`
-                  : `+${r.delay}m · अत्यंत विलंब`;
-                const confOk = r.confidence >= 90;
-
-                return (
-                  <tr key={r.number} className="hover:bg-accent">
-                    <td className="px-4 py-3 font-mono font-bold text-primary">{r.number}</td>
-                    <td className="px-4 py-3">
-                      <p className="font-semibold">{r.name}</p>
-                      <p className="text-[10px] text-muted-foreground">{r.nameHi}</p>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{r.route}</td>
-                    <td className="px-4 py-3 font-mono text-muted-foreground">{r.scheduled}</td>
-                    <td className="px-4 py-3">
-                      <p className="font-mono text-base font-bold text-yellow-400">{r.aiEta}</p>
-                      {r.delay > 0 && (
-                        <p className="text-[9px] text-muted-foreground">±5 min range</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold ${confOk ? "border-success/30 bg-success/10 text-success" : "border-warning/30 bg-warning/10 text-warning"}`}>
-                        {r.confidence}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-mono font-bold">{r.platform}</td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded border px-2 py-1 text-[9px] font-bold ${statusColor}`}>
-                        {statusLabel}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Button
-                        size="sm"
-                        variant={confOk ? "default" : "outline"}
-                        className={`gap-1 text-[10px] ${!confOk ? "border-warning/30 text-warning" : ""}`}
-                        title={confOk ? "Safe to announce" : `Confidence ${r.confidence}% — wait for update`}
-                        onClick={() => {
-                          if (chimeOn) {
-                            // In production: play chime audio then TTS
-                          }
-                          alert(`Announcement: ${announceText(r)}`);
-                        }}
-                      >
-                        {confOk ? "🔊 Announce" : "⏳ Hold"}
-                      </Button>
-                      {!confOk && (
-                        <p className="mt-0.5 text-[8px] text-warning">Low conf — wait</p>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {visibleRows.map((r) => (
+                <tr key={r.number} className="hover:bg-accent">
+                  <td className="px-4 py-3 font-mono font-bold text-primary">{r.number}</td>
+                  <td className="px-4 py-3 font-semibold">{r.name}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{r.route}</td>
+                  <td className="px-4 py-3 font-mono text-muted-foreground">{r.scheduled}</td>
+                  <td className="px-4 py-3">
+                    <p className="font-mono text-sm font-bold text-yellow-400">{r.aiEta}</p>
+                    <p className="font-mono text-[10px] text-muted-foreground">{r.aiEtaLower} – {r.aiEtaUpper}</p>
+                  </td>
+                  <td className="px-4 py-3 font-mono font-bold">{r.platform}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded border px-2 py-1 text-[9px] font-bold ${getStatusStyle(r)}`}>
+                      {getStatusLabel(r)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-[10px]"
+                      onClick={() => {
+                        const msg = `Train ${r.number} — ${r.name}\nPlatform ${r.platform}  |  Expected ${r.aiEta}\n${r.delay > 0 ? r.delay + " min late" : "Running on time"}`;
+                        alert(msg);
+                      }}
+                    >
+                      Announce
+                    </Button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
 
-        {/* cascade warning */}
+        {/* Footer */}
         <div className="border-t border-border bg-warning/5 px-4 py-2.5 text-xs">
-          ⚠ <b className="text-warning">Platform conflict risk:</b> Trains 12951 and 12952 both predicted for arrival within 6 min.
-          Review platform assignment before announcing.
-          &nbsp;|&nbsp;
-          <b className="text-warning">Cascade:</b> Train 19037 (+76 min) — downstream trains may be affected.
+          <b className="text-warning">Platform conflict:</b> Trains 12951 and 12952 both predicted within 6 min — review platform assignment before announcing.
+          <span className="mx-2 opacity-30">|</span>
+          <b className="text-warning">Note:</b> Train 19037 running +76 min — downstream trains may be affected.
         </div>
       </div>
-
-      {/* Announcement preview panel */}
-      <Panel title="Announcement Preview" kicker="Auto-generated from AI ETA">
-        <div className="p-4">
-          <div className="rounded border border-border bg-muted/30 p-4">
-            <p className="mb-2 text-[9px] uppercase tracking-wider text-muted-foreground">English</p>
-            <p className="text-sm leading-relaxed text-foreground">"{pidsRows[0] ? announceText(pidsRows[0]) : ""}"</p>
-          </div>
-          <div className="mt-3 rounded border border-border bg-muted/30 p-4">
-            <p className="mb-2 text-[9px] uppercase tracking-wider text-muted-foreground">Hindi · हिंदी</p>
-            <p className="text-sm leading-relaxed text-foreground">
-              {pidsRows[0] ? `"यात्रियों का ध्यान। गाड़ी संख्या ${pidsRows[0].number}, ${pidsRows[0].nameHi}, प्लेटफ़ॉर्म ${pidsRows[0].platform} पर आ रही है। अपेक्षित आगमन ${pidsRows[0].aiEta}। गाड़ी ${pidsRows[0].delay > 0 ? `${pidsRows[0].delay} मिनट विलंब से` : "समय पर"} चल रही है।"` : ""}
-            </p>
-          </div>
-          <div className="mt-3 flex gap-2">
-            <Button size="sm" variant="outline">🔊 Play English</Button>
-            <Button size="sm" variant="outline">🔊 हिंदी सुनें</Button>
-            <Button size="sm" variant="default">📢 Broadcast Live</Button>
-          </div>
-        </div>
-      </Panel>
     </div>
   );
 }

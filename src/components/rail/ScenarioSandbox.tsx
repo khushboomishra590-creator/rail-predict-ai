@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AlertTriangle, Zap, RotateCcw, ChevronRight, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Panel } from "./Primitives";
-import { scenarios, trains, type Scenario } from "@/data/demo";
+import { scenarios, trains, type Scenario } from "@/data/railData";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Advisory = {
@@ -34,7 +34,9 @@ function now() {
 }
 
 function addMinutes(time: string, mins: number): string {
-  const [h, m] = time.split(":").map(Number);
+  const parts = time.split(":").map(Number);
+  const h = parts[0] ?? 0;
+  const m = parts[1] ?? 0;
   const total  = h * 60 + m + mins;
   return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
@@ -59,7 +61,7 @@ export function ScenarioSandboxView({
   const [customSeverity, setCustomSeverity] = useState("High Severity");
   const [customMinutes, setCustomMinutes]   = useState("15");
 
-  const selectedTrain = trains[0]; // 12951 as demo target
+  const selectedTrain = trains[0]; // 12951 as primary target
 
   function inject(s: Scenario) {
     if (activeScenarios.includes(s.id)) return;
@@ -146,7 +148,7 @@ export function ScenarioSandboxView({
         <div>
           <h2 className="flex items-center gap-2 text-base font-bold">
             <FlaskConical className="size-5 text-primary" />
-            Scenario Disruption Injector
+            Scenario Disruption Planner
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Inject real-world operational bottlenecks to test the dynamic ML model's downstream ETA recalculation.
@@ -191,7 +193,6 @@ export function ScenarioSandboxView({
                     </div>
                     <div>
                       <p className="text-xs font-semibold leading-snug">{s.label}</p>
-                      <p className="mt-0.5 text-[9px] text-muted-foreground">{s.labelHi}</p>
                       <p className="mt-1.5 text-[10px] text-muted-foreground">{s.description}</p>
                     </div>
                     <div className="flex items-center justify-between">
@@ -315,7 +316,7 @@ export function ScenarioSandboxView({
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
                 <FlaskConical className="size-8 opacity-30" />
                 <p className="text-xs">No active disruptions</p>
-                <p className="text-[10px]">Inject a scenario to begin</p>
+                <p className="text-[10px]">Inject a scenario to begin analysis</p>
               </div>
             ) : (
               <div className="divide-y divide-border">
@@ -343,7 +344,7 @@ export function ScenarioSandboxView({
           </Panel>
 
           {/* How it works */}
-          <Panel title="How Scenario Injection Works" kicker="ML model pipeline">
+          <Panel title="How Disruption Planning Works" kicker="ML model pipeline">
             <div className="space-y-2 p-4 text-xs text-muted-foreground">
               {[
                 ["1", "Select or create a disruption event"],

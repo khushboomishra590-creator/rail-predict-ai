@@ -1,7 +1,7 @@
 import { ChevronRight, LocateFixed, Navigation, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Train } from "@/data/demo";
+import type { Train } from "@/data/railData";
 
 const hubs = [{ n: "New Delhi", x: 62, y: 15 }, { n: "Kota", x: 55, y: 30 }, { n: "Ratlam", x: 45, y: 43 }, { n: "Vadodara", x: 38, y: 55 }, { n: "Surat", x: 31, y: 70 }, { n: "Mumbai", x: 23, y: 88 }, { n: "Ahmedabad", x: 27, y: 45 }];
 
