@@ -227,7 +227,7 @@ export default function Dashboard() {
           </div>
 
           {view === "Dashboard"        && <DashboardView selected={liveSelected} setSelected={setSelected} tick={tick} congestion={congestion} triggerCongestion={triggerCongestion} query={query} setQuery={setQuery} filtered={filtered} liveEta={liveEta} refreshEta={refreshEta} allTrains={sourceTrains} etaLoading={etaState.status === "loading"} />}
-          {view === "Live Trains"      && <LiveTrainsView query={query} setQuery={setQuery} filtered={filtered} onSelect={(t) => { setSelected(t); setView("Dashboard"); }} />}
+          {view === "Live Trains"      && <LiveTrainsView allTrains={sourceTrains} onSelect={(t) => { setSelected(t); setView("Dashboard"); }} />}
           {view === "ETA Prediction"   && <PredictionView selected={liveSelected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={liveEta} refreshEta={refreshEta} etaLoading={etaState.status === "loading"} />}
           {view === "Passenger Tracker"&& <PassengerTrackerView />}
           {view === "Station PIDS"     && <StationPIDSView />}
@@ -854,48 +854,173 @@ function SearchBox({ query, setQuery }: { query: string; setQuery: (v: string) =
 }
 
 // ─── Live trains view ─────────────────────────────────────────────────────────
-function LiveTrainsView({ query, setQuery, filtered, onSelect }: {
-  query: string; setQuery: (v: string) => void; filtered: Train[]; onSelect: (t: Train) => void;
+function LiveTrainsView({ allTrains, onSelect }: {
+  allTrains: Train[]; onSelect: (t: Train) => void;
 }) {
+  const [query,      setQuery]      = useState("");
+  const [zone,       setZone]       = useState("All Zones");
+  const [trainType,  setTrainType]  = useState("All Types");
+  const [delayStatus,setDelayStatus]= useState("All Status");
+  const [route,      setRoute]      = useState("All Routes");
+  const [confidence, setConfidence] = useState("All Confidence");
+
+  // ── Build dynamic filter options from actual data ──────────────────────────
+  const zones       = useMemo(() => ["All Zones",      ...Array.from(new Set(allTrains.map((t) => t.zone).filter(Boolean))).sort()], [allTrains]);
+  const trainTypes  = useMemo(() => ["All Types",      ...Array.from(new Set(allTrains.map((t) => t.trainType).filter(Boolean))).sort()], [allTrains]);
+  const routes      = useMemo(() => ["All Routes",     ...Array.from(new Set(allTrains.map((t) => `${t.current.split(" ")[0]} → ${t.destination.split(" ")[0]}`).filter(Boolean))).sort()], [allTrains]);
+
+  // ── Delay status helper (consistent thresholds) ───────────────────────────
+  function delayCategory(delay: number): string {
+    if (delay === 0)   return "On Time";
+    if (delay <= 10)   return "Minor Delay";
+    if (delay <= 30)   return "Delayed";
+    return "Significant Delay";
+  }
+
+  // ── Confidence category ────────────────────────────────────────────────────
+  function confCategory(c: number): string {
+    if (c >= 90) return "High";
+    if (c >= 75) return "Medium";
+    return "Low";
+  }
+
+  // ── Apply all filters ──────────────────────────────────────────────────────
+  const visible = useMemo(() => {
+    const q = query.toLowerCase();
+    return allTrains.filter((t) => {
+      // search: number, name, current, destination, zone
+      if (q && !`${t.number} ${t.name} ${t.shortName} ${t.current} ${t.destination} ${t.zone}`.toLowerCase().includes(q)) return false;
+      // zone
+      if (zone !== "All Zones" && t.zone !== zone) return false;
+      // train type
+      if (trainType !== "All Types" && t.trainType !== trainType) return false;
+      // delay status
+      if (delayStatus !== "All Status" && delayCategory(t.delay) !== delayStatus) return false;
+      // route — match if origin or destination word appears
+      if (route !== "All Routes") {
+        const [fromPart, toPart] = route.split(" → ");
+        const routeStr = `${t.current} ${t.destination}`.toLowerCase();
+        if (!routeStr.includes((fromPart ?? "").toLowerCase()) &&
+            !routeStr.includes((toPart  ?? "").toLowerCase())) return false;
+      }
+      // confidence
+      if (confidence !== "All Confidence" && confCategory(t.confidence) !== confidence) return false;
+      return true;
+    });
+  }, [allTrains, query, zone, trainType, delayStatus, route, confidence]);
+
+  const hasActiveFilter = zone !== "All Zones" || trainType !== "All Types" ||
+    delayStatus !== "All Status" || route !== "All Routes" || confidence !== "All Confidence";
+
+  function clearFilters() {
+    setZone("All Zones");
+    setTrainType("All Types");
+    setDelayStatus("All Status");
+    setRoute("All Routes");
+    setConfidence("All Confidence");
+  }
+
+  // ── Reusable select ────────────────────────────────────────────────────────
+  function FilterSelect({ value, onChange, options }: {
+    value: string; onChange: (v: string) => void; options: string[];
+  }) {
+    return (
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`border px-2 py-1 text-[11px] font-semibold outline-none focus:border-primary bg-background cursor-pointer ${value === options[0] ? "border-input text-muted-foreground" : "border-primary text-primary"}`}
+      >
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+  }
+
   return (
-    <Panel title="Live Train Search" kicker="1,248 active movements">
-      <SearchBox query={query} setQuery={setQuery} />
-      <div className="flex flex-wrap gap-2 border-b border-border p-3">
-        {["Zone", "Train Type", "Delay Status", "Route", "Prediction Confidence"].map((f) => (
-          <Button key={f} variant="outline" size="sm">{f}<ChevronDown /></Button>
-        ))}
+    <Panel title="Live Trains" kicker={`${visible.length} of ${allTrains.length} trains shown`}>
+
+      {/* ── Search ── */}
+      <div className="border-b border-border p-3">
+        <div className="flex items-center gap-2 border border-input bg-background px-3">
+          <Search className="size-4 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="h-10 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            placeholder="Search train number, name or station…"
+          />
+          {query && (
+            <button onClick={() => setQuery("")} className="text-[10px] text-muted-foreground hover:text-foreground">✕</button>
+          )}
+        </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[950px] text-left text-xs">
-          <thead className="bg-muted/60 text-[9px] uppercase tracking-wider text-muted-foreground">
-            <tr>{["Train", "Zone / Type", "Current location", "Destination", "Delay", "Scheduled", "AI ETA ± Range", "Confidence", "Status"].map((h) => (
-              <th className="px-4 py-3" key={h}>{h}</th>
-            ))}</tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {filtered.map((t) => (
-              <tr key={t.number} onClick={() => onSelect(t)} className="cursor-pointer hover:bg-accent">
-                <td className="px-4 py-4"><b>{t.number}</b><p className="mt-1 text-[10px] text-muted-foreground">{t.shortName}</p></td>
-                <td className="px-4"><p>{t.zone}</p><p className="text-[9px] text-muted-foreground">{t.trainType}</p></td>
-                <td className="px-4">{t.current}</td>
-                <td className="px-4">{t.destination}</td>
-                <td className="px-4 font-mono text-warning">+{t.delay} min</td>
-                <td className="px-4 font-mono">{t.scheduled}</td>
-                <td className="px-4">
-                  <p className="font-mono font-bold text-live">
-                    {fmtEtaTime(t.aiEta) === "Not available" ? "No prediction" : t.aiEta}
-                  </p>
-                  {fmtEtaRange(t.aiEtaLower, t.aiEtaUpper) !== "Not available" && (
-                    <p className="text-[9px] text-muted-foreground">{fmtEtaRange(t.aiEtaLower, t.aiEtaUpper)}</p>
-                  )}
-                </td>
-                <td className={`px-4 font-mono font-semibold ${confColor(t.confidence)}`}>{t.confidence}%</td>
-                <td className="px-4"><span className="flex items-center gap-2 capitalize"><StatusDot status={t.status} />{t.status}</span></td>
+
+      {/* ── Filters ── */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+        <FilterSelect value={zone}        onChange={setZone}        options={zones} />
+        <FilterSelect value={trainType}   onChange={setTrainType}   options={trainTypes} />
+        <FilterSelect value={delayStatus} onChange={setDelayStatus} options={["All Status", "On Time", "Minor Delay", "Delayed", "Significant Delay"]} />
+        <FilterSelect value={route}       onChange={setRoute}       options={routes} />
+        <FilterSelect value={confidence}  onChange={setConfidence}  options={["All Confidence", "High", "Medium", "Low"]} />
+        {hasActiveFilter && (
+          <button
+            onClick={clearFilters}
+            className="ml-auto text-[11px] font-semibold text-primary hover:underline"
+          >
+            Clear Filters
+          </button>
+        )}
+      </div>
+
+      {/* ── Results ── */}
+      {visible.length === 0 ? (
+        <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+          No trains match the selected filters.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[950px] text-left text-xs">
+            <thead className="bg-muted/60 text-[9px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                {["Train", "Zone / Type", "Current location", "Destination", "Delay", "Scheduled", "AI ETA ± Range", "Confidence", "Status"].map((h) => (
+                  <th className="px-4 py-3" key={h}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {visible.map((t) => (
+                <tr key={t.number} onClick={() => onSelect(t)} className="cursor-pointer hover:bg-accent">
+                  <td className="px-4 py-4">
+                    <b>{t.number}</b>
+                    <p className="mt-1 text-[10px] text-muted-foreground">{t.shortName}</p>
+                  </td>
+                  <td className="px-4">
+                    <p>{t.zone}</p>
+                    <p className="text-[9px] text-muted-foreground">{t.trainType}</p>
+                  </td>
+                  <td className="px-4">{t.current}</td>
+                  <td className="px-4">{t.destination}</td>
+                  <td className={`px-4 font-mono ${t.delay === 0 ? "text-success" : t.delay <= 10 ? "text-warning" : "text-destructive"}`}>
+                    {t.delay === 0 ? "On time" : `+${t.delay} min`}
+                  </td>
+                  <td className="px-4 font-mono">{t.scheduled}</td>
+                  <td className="px-4">
+                    <p className="font-mono font-bold text-live">
+                      {fmtEtaTime(t.aiEta) === "Not available" ? "No prediction" : t.aiEta}
+                    </p>
+                    {fmtEtaRange(t.aiEtaLower, t.aiEtaUpper) !== "Not available" && (
+                      <p className="text-[9px] text-muted-foreground">{fmtEtaRange(t.aiEtaLower, t.aiEtaUpper)}</p>
+                    )}
+                  </td>
+                  <td className={`px-4 font-mono font-semibold ${confColor(t.confidence)}`}>{t.confidence}%</td>
+                  <td className="px-4">
+                    <span className="flex items-center gap-2 capitalize"><StatusDot status={t.status} />{t.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Panel>
   );
 }
