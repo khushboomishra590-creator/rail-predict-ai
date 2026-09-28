@@ -1,16 +1,3 @@
-# Environment / secrets — never commit real credentials
-.env
-backend/.env
-*.env
-
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-.venv/
-venv/
-backend/ETA_dynamicengine/.venv/
-
 # Logs
 logs
 *.log
