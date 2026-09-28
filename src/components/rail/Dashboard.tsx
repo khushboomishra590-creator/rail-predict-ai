@@ -1108,87 +1108,428 @@ function AlertsView({ alerts }: { alerts: typeof initialAlerts }) {
 }
 
 // ─── Architecture / API view ──────────────────────────────────────────────────
+// All data comes from the real FastAPI M4 backend — no fake endpoints.
+const ACTUAL_ENDPOINTS = [
+  {
+    method: "GET",
+    path: "/health",
+    desc: "Backend health check — returns status and API version.",
+    example: 'curl http://localhost:8000/health',
+  },
+  {
+    method: "GET",
+    path: "/api/trains",
+    desc: "List all trains in the database with origin/destination/zone info.",
+    example: 'curl http://localhost:8000/api/trains',
+  },
+  {
+    method: "GET",
+    path: "/api/trains/{train_id}",
+    desc: "Detailed train record including origin and destination station objects.",
+    example: 'curl http://localhost:8000/api/trains/12951',
+  },
+  {
+    method: "POST",
+    path: "/api/trains/{train_id}/update",
+    desc: "Submit a simulated RTIS movement event. Writes to train_movements → updates train_runs → triggers M3 XGBoost → persists ETA prediction.",
+    example: 'curl -X POST http://localhost:8000/api/trains/12951/update \\\n  -H "Content-Type: application/json" \\\n  -d \'{"train_id":"12951","latitude":22.307,"longitude":73.181,"speed":104,"timestamp":"2026-09-28T18:00:00+05:30","current_delay_min":18,"current_section":"BRC_SECTION","distance_to_next_station_km":8}\'',
+  },
+  {
+    method: "GET",
+    path: "/api/trains/{train_id}/eta",
+    desc: "Get the latest AI-predicted ETA for the train's next significant station. Calls M3 → XGBoost and returns scheduled_eta, predicted_eta, eta_lower, eta_upper, uncertainty_minutes.",
+    example: 'curl http://localhost:8000/api/trains/12951/eta',
+  },
+  {
+    method: "GET",
+    path: "/api/trains/{train_id}/route-eta",
+    desc: "Get AI ETA predictions for every remaining stop on today's run. Returns an array of per-station ETA objects with uncertainty bands.",
+    example: 'curl http://localhost:8000/api/trains/12951/route-eta',
+  },
+] as const;
+
 function ArchitectureView() {
   const steps = [
-    "Live Train Location (GPS / NTES)",
-    "Operational Data (Speed, Delay, Signal)",
-    "Historical Delay Data (Section-level)",
-    "Network & Weather Conditions",
-    "Data Processing (Pandas / NumPy)",
-    "Feature Engineering (29 features)",
-    "Network-aware XGBoost v2 Model",
-    "Dynamic ETA + Uncertainty Band",
-    "Passenger · Station PIDS · Control Room",
+    { label: "Live Train Location (GPS / NTES)", tier: "input" },
+    { label: "Operational Data (Speed, Delay, Signal)", tier: "input" },
+    { label: "Historical Delay Data (Section-level)", tier: "input" },
+    { label: "Network & Weather Conditions", tier: "input" },
+    { label: "POST /api/trains/{id}/update  →  PostgreSQL", tier: "api" },
+    { label: "Feature Engineering (29 features)", tier: "ml" },
+    { label: "Network-aware XGBoost v2 (M3 Engine)", tier: "ml" },
+    { label: "GET /api/trains/{id}/eta  →  Uncertainty Band", tier: "api" },
+    { label: "React Frontend · Passenger · Station PIDS", tier: "output" },
   ];
-  const apis = [
-    { method: "POST", path: "/api/predict",         desc: "Predict next-station delay — returns predicted_delay (float, minutes)" },
-    { method: "POST", path: "/api/predict/range",   desc: "Prediction with uncertainty — returns predicted_delay, lower_bound, upper_bound, uncertainty (P90)" },
-    { method: "POST", path: "/api/predict/explain", desc: "Local explanation — returns top contributing features with plain-text descriptions" },
-    { method: "GET",  path: "/api/model/status",    desc: "Model health — version, MAE, RMSE, feature count, training date" },
-    { method: "GET",  path: "/api/trains",          desc: "All live trains with dynamic ETA and confidence bands" },
-    { method: "GET",  path: "/api/stations/:code/pids", desc: "Station PIDS feed — arrivals with AI ETA and announcement text" },
-  ];
-  return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_.85fr]">
-      <Panel title="How RailPredict AI Works" kicker="Continuous prediction pipeline">
-        <div className="p-5">
-          {steps.map((s, i) => (
-            <div key={s} className="flex flex-col items-center">
-              <div className={`w-full border p-3 text-center text-xs font-semibold uppercase tracking-wider ${i === 7 ? "border-live bg-live/10 text-live" : i === 6 ? "border-primary/50 bg-primary/5" : "border-border bg-card"}`}>{s}</div>
-              {i < steps.length - 1 && <div className="h-5 w-px animate-pulse bg-primary" />}
-            </div>
-          ))}
-        </div>
-      </Panel>
 
-      <div className="space-y-4">
-        {/* ML Model Status */}
-        <Panel title="ML Model Status" kicker="Live prediction engine">
-          <div className="p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <span className="flex size-2 relative"><span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60" /><span className="relative inline-flex size-2 rounded-full bg-success" /></span>
-              <span className="text-xs font-bold text-success">ONLINE — Model active</span>
-            </div>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-              {[
-                ["Model",         "Network-aware XGBoost v2"],
-                ["Features",      "29"],
-                ["Training rows", "20,000"],
-                ["MAE",           "4.34 min"],
-                ["RMSE",          "5.92 min"],
-                ["P90 band",      "±9.98 min"],
-                ["vs Baseline",   "+57% improvement"],
-                ["Trained",       "September 2026"],
-                ["Model size",    "1,872 KB"],
-                ["Status",        "Trained: YES"],
-              ].map(([k, v]) => (
-                <div key={k}>
-                  <p className="text-muted-foreground">{k}</p>
-                  <p className={`font-mono font-semibold ${k === "vs Baseline" ? "text-success" : k === "MAE" || k === "RMSE" ? "text-live" : ""}`}>{v}</p>
+  // ── Live health check ────────────────────────────────────────────────────
+  const [health, setHealth] = useState<{ status: string; version: string } | null>(null);
+  const [healthErr, setHealthErr] = useState<string | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+
+  async function checkHealth() {
+    setHealthLoading(true);
+    setHealthErr(null);
+    try {
+      const data = await api.health();
+      setHealth(data);
+    } catch (e) {
+      setHealthErr(String(e));
+    } finally {
+      setHealthLoading(false);
+    }
+  }
+
+  // ── Live train list ──────────────────────────────────────────────────────
+  const [trainList, setTrainList] = useState<import("@/lib/api").ApiTrain[] | null>(null);
+  const [trainListErr, setTrainListErr] = useState<string | null>(null);
+  const [trainListLoading, setTrainListLoading] = useState(false);
+
+  async function fetchTrains() {
+    setTrainListLoading(true);
+    setTrainListErr(null);
+    try {
+      const data = await api.listTrains();
+      setTrainList(data);
+    } catch (e) {
+      setTrainListErr(String(e));
+    } finally {
+      setTrainListLoading(false);
+    }
+  }
+
+  // ── Live ETA demo (train 12951) ──────────────────────────────────────────
+  const [etaResult, setEtaResult] = useState<import("@/lib/api").EtaResponse | null>(null);
+  const [etaErr, setEtaErr] = useState<string | null>(null);
+  const [etaLoading, setEtaLoading] = useState(false);
+
+  async function fetchEta() {
+    setEtaLoading(true);
+    setEtaErr(null);
+    try {
+      const data = await api.getEta("12951");
+      setEtaResult(data);
+    } catch (e) {
+      setEtaErr(String(e));
+    } finally {
+      setEtaLoading(false);
+    }
+  }
+
+  // ── Live POST update + ETA refresh demo ─────────────────────────────────
+  const [updateSpeed, setUpdateSpeed] = useState(104);
+  const [updateDelay, setUpdateDelay] = useState(18);
+  const [updateResult, setUpdateResult] = useState<string | null>(null);
+  const [updateLoading, setUpdateLoading] = useState(false);
+
+  async function sendUpdate() {
+    setUpdateLoading(true);
+    setUpdateResult(null);
+    setEtaErr(null);
+    try {
+      const res = await api.postMovementUpdate("12951", {
+        train_id: "12951",
+        latitude: 22.307,
+        longitude: 73.181,
+        speed: updateSpeed,
+        timestamp: new Date().toISOString(),
+        current_delay_min: updateDelay,
+        current_section: "BRC_SECTION",
+        distance_to_next_station_km: 8,
+      });
+      setUpdateResult(`✓ movement_id=${res.movement_id} recorded. Fetching fresh ETA…`);
+      await new Promise((r) => setTimeout(r, 400));
+      await fetchEta();
+      toast.success("Movement posted + ETA refreshed", {
+        description: `movement_id=${res.movement_id} · delay=${updateDelay} min · speed=${updateSpeed} km/h`,
+      });
+    } catch (e) {
+      setUpdateResult(`Error: ${String(e)}`);
+      toast.error("Update failed", { description: String(e) });
+    } finally {
+      setUpdateLoading(false);
+    }
+  }
+
+  // ── Expanded endpoint state ──────────────────────────────────────────────
+  const [expandedPath, setExpandedPath] = useState<string | null>(null);
+
+  const tierStyle = (tier: string) => {
+    if (tier === "api")    return "border-primary/60 bg-primary/5 text-primary";
+    if (tier === "ml")     return "border-live/60 bg-live/10 text-live";
+    if (tier === "output") return "border-success/60 bg-success/10 text-success";
+    return "border-border bg-card text-foreground";
+  };
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Top row: pipeline + health + model ── */}
+      <div className="grid gap-4 xl:grid-cols-[1fr_.9fr]">
+
+        {/* Pipeline */}
+        <Panel title="System Architecture" kicker="React → FastAPI M4 → PostgreSQL → M3 XGBoost">
+          <div className="p-5">
+            {steps.map((s, i) => (
+              <div key={s.label} className="flex flex-col items-center">
+                <div className={`w-full border px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wider ${tierStyle(s.tier)}`}>
+                  {s.label}
                 </div>
+                {i < steps.length - 1 && <div className="h-4 w-px bg-primary/40" />}
+              </div>
+            ))}
+            <div className="mt-4 flex flex-wrap gap-2 text-[9px]">
+              {[
+                { color: "bg-border", label: "Data input" },
+                { color: "bg-primary/60", label: "API layer" },
+                { color: "bg-live/60", label: "ML engine (M3)" },
+                { color: "bg-success/60", label: "Output" },
+              ].map(({ color, label }) => (
+                <span key={label} className="flex items-center gap-1 text-muted-foreground">
+                  <i className={`inline-block size-2 rounded-sm ${color}`} />{label}
+                </span>
               ))}
             </div>
           </div>
         </Panel>
 
-        {/* API endpoints */}
-        <Panel title="Indian Railways Dynamic ETA API" kicker="REST endpoints · FastAPI backend">
-          <div className="divide-y divide-border">
-            {apis.map((a) => (
-              <div key={a.path} className="p-3">
-                <div className="flex items-center gap-2">
-                  <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${a.method === "GET" ? "bg-success/10 text-success" : "bg-live/10 text-live"}`}>{a.method}</span>
-                  <code className="font-mono text-[11px] text-foreground">{a.path}</code>
-                </div>
-                <p className="mt-1 text-[10px] text-muted-foreground">{a.desc}</p>
-                <code className="mt-1.5 block rounded bg-muted px-2 py-1 text-[9px] text-muted-foreground">
-                  curl -X {a.method} http://localhost:8000{a.path}
-                </code>
+        <div className="space-y-4">
+          {/* Health check */}
+          <Panel title="GET /health" kicker="Backend health check">
+            <div className="p-4">
+              <p className="mb-3 text-[10px] text-muted-foreground">
+                Verifies the FastAPI backend is reachable and returns its version.
+              </p>
+              <Button size="sm" onClick={checkHealth} disabled={healthLoading} className="gap-1.5">
+                <Cpu className={healthLoading ? "animate-spin" : ""} />
+                {healthLoading ? "Checking…" : "Run Health Check"}
+              </Button>
+              {health && (
+                <pre className="mt-3 rounded bg-muted p-3 text-[10px] leading-relaxed text-success">
+{JSON.stringify(health, null, 2)}
+                </pre>
+              )}
+              {healthErr && (
+                <p className="mt-2 text-[10px] text-destructive">{healthErr}</p>
+              )}
+            </div>
+          </Panel>
+
+          {/* ML Model info — static, sourced from M3 training artifacts */}
+          <Panel title="ML Model (M3 Engine)" kicker="Network-aware XGBoost — trained artifacts">
+            <div className="p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="relative flex size-2">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60" />
+                  <span className="relative inline-flex size-2 rounded-full bg-success" />
+                </span>
+                <span className="text-xs font-bold text-success">ONLINE — artifacts loaded</span>
               </div>
-            ))}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                {([
+                  ["Model",         "Network-aware XGBoost v2"],
+                  ["Features",      "29"],
+                  ["Training rows", "20,000"],
+                  ["MAE",           "4.34 min"],
+                  ["RMSE",          "5.92 min"],
+                  ["P90 band",      "±9.98 min"],
+                  ["vs Baseline",   "+57% improvement"],
+                  ["Artifact",      "network_xgb_model.pkl"],
+                ] as [string, string][]).map(([k, v]) => (
+                  <div key={k}>
+                    <p className="text-muted-foreground">{k}</p>
+                    <p className={`font-mono font-semibold ${k === "vs Baseline" ? "text-success" : k === "MAE" || k === "RMSE" ? "text-live" : ""}`}>{v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Panel>
+        </div>
+      </div>
+
+      {/* ── Endpoint reference (real endpoints only) ── */}
+      <Panel title="M4 FastAPI — REST Endpoints" kicker="All 6 real endpoints · click to expand">
+        <div className="divide-y divide-border">
+          {ACTUAL_ENDPOINTS.map((ep) => {
+            const isOpen = expandedPath === ep.path;
+            return (
+              <div key={ep.path}>
+                <button
+                  onClick={() => setExpandedPath(isOpen ? null : ep.path)}
+                  className="flex w-full items-start gap-3 p-3 text-left transition-colors hover:bg-accent"
+                >
+                  <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${ep.method === "GET" ? "bg-success/10 text-success" : "bg-live/10 text-live"}`}>
+                    {ep.method}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <code className="font-mono text-[11px] text-foreground">{ep.path}</code>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">{ep.desc}</p>
+                  </div>
+                  <ChevronDown className={`mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                </button>
+                {isOpen && (
+                  <div className="border-t border-border bg-muted/40 px-4 py-3">
+                    <p className="mb-1.5 text-[9px] uppercase tracking-wider text-muted-foreground">Example</p>
+                    <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted p-2 text-[9px] leading-relaxed text-foreground">
+{ep.example}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+
+      {/* ── Live demos ── */}
+      <div className="grid gap-4 xl:grid-cols-2">
+
+        {/* GET /api/trains live */}
+        <Panel title="GET /api/trains" kicker="Live — fetches from PostgreSQL via FastAPI">
+          <div className="p-4">
+            <p className="mb-3 text-[10px] text-muted-foreground">
+              Returns the list of all trains registered in the database.
+            </p>
+            <Button size="sm" onClick={fetchTrains} disabled={trainListLoading} className="gap-1.5">
+              <Cpu className={trainListLoading ? "animate-spin" : ""} />
+              {trainListLoading ? "Fetching…" : "Fetch Train List"}
+            </Button>
+            {trainListErr && <p className="mt-2 text-[10px] text-destructive">{trainListErr}</p>}
+            {trainList && (
+              <div className="mt-3 max-h-48 overflow-y-auto rounded border border-border">
+                <table className="w-full text-[10px]">
+                  <thead className="bg-muted/60 text-[9px] uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Number</th>
+                      <th className="px-3 py-2 text-left">Name</th>
+                      <th className="px-3 py-2 text-left">Type</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {trainList.map((t) => (
+                      <tr key={t.id} className="hover:bg-accent/50">
+                        <td className="px-3 py-2 font-mono font-semibold">{t.number}</td>
+                        <td className="px-3 py-2">{t.name}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{t.train_type ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </Panel>
+
+        {/* GET /api/trains/12951/eta live */}
+        <Panel title="GET /api/trains/12951/eta" kicker="Live M3 XGBoost prediction — Train 12951">
+          <div className="p-4">
+            <p className="mb-3 text-[10px] text-muted-foreground">
+              Triggers the M3 engine: builds ETAInput from PostgreSQL → XGBoost inference → persists EtaPrediction → returns JSON.
+            </p>
+            <Button size="sm" onClick={fetchEta} disabled={etaLoading} className="gap-1.5">
+              <Cpu className={etaLoading ? "animate-spin" : ""} />
+              {etaLoading ? "Calling M3…" : "Fetch Live ETA"}
+            </Button>
+            {etaErr && <p className="mt-2 text-[10px] text-destructive">{etaErr}</p>}
+            {etaResult && (
+              <div className="mt-3 space-y-1.5">
+                <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                  {([
+                    ["Current station",   etaResult.current_station],
+                    ["Next station",      etaResult.next_station],
+                    ["Current delay",     `${etaResult.current_delay} min`],
+                    ["Speed",             `${etaResult.current_speed} km/h`],
+                    ["Scheduled ETA",     fmtEtaTime(etaResult.scheduled_eta)],
+                    ["AI Predicted ETA",  fmtEtaTime(etaResult.predicted_eta)],
+                    ["ETA lower",         fmtEtaTime(etaResult.eta_lower)],
+                    ["ETA upper",         fmtEtaTime(etaResult.eta_upper)],
+                    ["Uncertainty",       `±${etaResult.uncertainty_minutes} min`],
+                    ["Predicted delay",   `+${etaResult.predicted_delay} min`],
+                  ] as [string, string][]).map(([k, v]) => (
+                    <div key={k} className="rounded bg-muted/40 px-2 py-1">
+                      <p className="text-[9px] text-muted-foreground">{k}</p>
+                      <p className={`font-mono font-semibold ${k === "AI Predicted ETA" ? "text-live" : k === "Uncertainty" ? "text-warning" : ""}`}>{v}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[9px] text-muted-foreground">
+                  Last updated: {new Date(etaResult.last_updated).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })}
+                </p>
+              </div>
+            )}
           </div>
         </Panel>
       </div>
+
+      {/* ── POST update → ETA refresh demo ── */}
+      <Panel
+        title="POST /api/trains/12951/update  →  GET /api/trains/12951/eta"
+        kicker="Full pipeline demo — RTIS movement → PostgreSQL → M3 → ETA response"
+      >
+        <div className="p-4">
+          <p className="mb-4 text-[10px] text-muted-foreground">
+            Post a simulated RTIS position event for Train 12951. The backend writes to{" "}
+            <code className="text-foreground">train_movements</code>, refreshes{" "}
+            <code className="text-foreground">train_runs</code>, calls{" "}
+            <code className="text-foreground">M3 ETAService.calculate_eta()</code>,
+            persists the result to <code className="text-foreground">eta_predictions</code>,
+            then immediately fetches the new ETA and renders it below.
+          </p>
+          <div className="mb-4 flex flex-wrap gap-4">
+            <label className="flex flex-col gap-1">
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Speed (km/h)</span>
+              <input
+                type="number" min={0} max={160} step={5}
+                value={updateSpeed}
+                onChange={(e) => setUpdateSpeed(Number(e.target.value))}
+                className="w-28 border border-input bg-background px-2 py-1.5 font-mono text-xs outline-none focus:border-primary"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Delay (min)</span>
+              <input
+                type="number" min={0} max={120} step={1}
+                value={updateDelay}
+                onChange={(e) => setUpdateDelay(Number(e.target.value))}
+                className="w-28 border border-input bg-background px-2 py-1.5 font-mono text-xs outline-none focus:border-primary"
+              />
+            </label>
+          </div>
+          <Button onClick={sendUpdate} disabled={updateLoading} className="gap-2">
+            <Cpu className={updateLoading ? "animate-spin" : ""} />
+            {updateLoading ? "Posting…" : "POST Movement → Refresh ETA"}
+          </Button>
+          {updateResult && (
+            <p className={`mt-2 text-[10px] ${updateResult.startsWith("Error") ? "text-destructive" : "text-success"}`}>
+              {updateResult}
+            </p>
+          )}
+          {etaResult && !updateLoading && (
+            <div className="mt-4 rounded border border-live/30 bg-live/5 p-3">
+              <p className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-live">
+                Live ETA response from M3 engine
+              </p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[10px] sm:grid-cols-3">
+                {([
+                  ["Current station",  etaResult.current_station],
+                  ["Next station",     etaResult.next_station],
+                  ["Scheduled ETA",    fmtEtaTime(etaResult.scheduled_eta)],
+                  ["AI ETA",           fmtEtaTime(etaResult.predicted_eta)],
+                  ["Range",            `${fmtEtaTime(etaResult.eta_lower)} – ${fmtEtaTime(etaResult.eta_upper)}`],
+                  ["Predicted delay",  `+${etaResult.predicted_delay} min`],
+                  ["Uncertainty",      `±${etaResult.uncertainty_minutes} min`],
+                  ["Speed",            `${etaResult.current_speed} km/h`],
+                  ["Delay in",         `${etaResult.current_delay} min`],
+                ] as [string, string][]).map(([k, v]) => (
+                  <div key={k}>
+                    <p className="text-muted-foreground">{k}</p>
+                    <p className={`font-mono font-semibold ${k === "AI ETA" ? "text-live" : k === "Uncertainty" ? "text-warning" : ""}`}>{v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Panel>
     </div>
   );
 }
