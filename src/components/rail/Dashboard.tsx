@@ -141,11 +141,7 @@ export default function Dashboard() {
     <div className="min-h-screen overflow-x-hidden bg-background text-foreground">
       <Toaster position="top-right" theme={dark ? "dark" : "light"} />
 
-      {/* ── Top alert banner ── */}
-      <div className="bg-destructive/90 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white flex items-center justify-between">
-        <span>⚠ NCR DIVISION: Dense fog advisory active between Delhi &amp; Kanpur · Speed restrictions &amp; dynamic headway buffers applied</span>
-        <span className="hidden sm:block opacity-70">SIH26028 · MINISTRY OF RAILWAYS</span>
-      </div>
+
 
       {/* ── Header ── */}
       <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-md">
@@ -630,27 +626,29 @@ function StationTable({ trainNumber, trainName }: { trainNumber: string; trainNa
   const { state } = useRouteEta(trainNumber);
   const [selectedStation, setSelectedStation] = useState<string | null>(null);
 
+  const routeData = state.status === "ok" ? state.data : null;
+
   // Build rows: live API data when available, demo fallback otherwise
   const rows = useMemo(() => {
-    if (state.status === "ok" && state.data.stations.length > 0) {
-      return state.data.stations.map((s) => ({
-        station: s.next_station,
-        stationCode: s.next_station.split(" ")[0].toUpperCase().slice(0, 4),
-        scheduled: fmtEtaTime(s.scheduled_eta),
-        current: fmtEtaTime(s.predicted_eta),
-        ai: fmtEtaTime(s.predicted_eta),
-        aiLower: fmtEtaTime(s.eta_lower),
-        aiUpper: fmtEtaTime(s.eta_upper),
-        delay: s.predicted_delay,
-        confidence: Math.max(70, Math.min(99, 97 - Math.round(s.uncertainty_minutes * 1.5))),
-        reason: s.predicted_delay > 10 ? "Cumulative section delay" : s.predicted_delay > 5 ? "Preceding train delay" : "Section congestion",
-        platform: "—",
-        isLive: true,
-      }));
+    if (routeData && routeData.stations.length > 0) {
+      return routeData.stations.map((s) => ({
+          station: s.next_station,
+          stationCode: (s.next_station.split(" ")[0] ?? s.next_station).toUpperCase().slice(0, 4),
+          scheduled: fmtEtaTime(s.scheduled_eta),
+          current: fmtEtaTime(s.predicted_eta),
+          ai: fmtEtaTime(s.predicted_eta),
+          aiLower: fmtEtaTime(s.eta_lower),
+          aiUpper: fmtEtaTime(s.eta_upper),
+          delay: s.predicted_delay,
+          confidence: Math.max(70, Math.min(99, 97 - Math.round(s.uncertainty_minutes * 1.5))),
+          reason: s.predicted_delay > 10 ? "Cumulative section delay" : s.predicted_delay > 5 ? "Preceding train delay" : "Section congestion",
+          platform: "—",
+          isLive: true,
+        }));
     }
     // fallback to demo data
     return stations.map((s) => ({ ...s, isLive: false }));
-  }, [state]);
+  }, [routeData]);
 
   const isLive = state.status === "ok";
   const isLoading = state.status === "loading" || state.status === "idle";
@@ -717,8 +715,8 @@ function StationTable({ trainNumber, trainName }: { trainNumber: string; trainNa
         </table>
       </div>
       {/* expanded detail row */}
-      {selectedStation && (() => {
-        const s = rows.find((r) => r.station === selectedStation);
+      {(() => {
+        const s = selectedStation ? rows.find((r) => r.station === selectedStation) : undefined;
         if (!s) return null;
         return (
           <div className="border-t border-border bg-accent/40 px-4 py-3 text-xs">
