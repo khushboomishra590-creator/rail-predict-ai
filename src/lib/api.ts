@@ -143,18 +143,58 @@ export const api = {
 
 /**
  * Convert an ISO-8601 datetime string from the API to "HH:MM" (IST display).
- * Returns "—" if the input is empty or invalid.
+ *
+ * Returns:
+ *   "Not available"  — if iso is null / undefined / empty string
+ *   "HH:MM"          — if iso is a valid datetime
+ *   "Not available"  — if the string cannot be parsed
+ *
+ * NEVER returns "--:--", "undefined", "null", or "Invalid Date".
  */
 export function fmtEtaTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso || iso.trim() === "") return "Not available";
   try {
-    return new Date(iso).toLocaleTimeString("en-IN", {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "Not available";
+    return d.toLocaleTimeString("en-IN", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
       timeZone: "Asia/Kolkata",
     });
   } catch {
-    return iso;
+    return "Not available";
   }
+}
+
+/**
+ * Format an ETA range from two ISO-8601 strings.
+ *
+ * Returns:
+ *   "HH:MM – HH:MM"  — when both values are valid
+ *   "Not available"  — when either value is missing / invalid
+ */
+export function fmtEtaRange(
+  lower: string | null | undefined,
+  upper: string | null | undefined,
+): string {
+  const lo = fmtEtaTime(lower);
+  const hi = fmtEtaTime(upper);
+  if (lo === "Not available" || hi === "Not available") return "Not available";
+  return `${lo} – ${hi}`;
+}
+
+/**
+ * Return the correct ETA display string based on API loading state.
+ *
+ *   loading = true  → "Calculating..."
+ *   iso valid       → "HH:MM"
+ *   otherwise       → "Not available"
+ */
+export function fmtEtaOrState(
+  iso: string | null | undefined,
+  loading: boolean,
+): string {
+  if (loading) return "Calculating...";
+  return fmtEtaTime(iso);
 }

@@ -29,6 +29,14 @@ const TRAIN_DISPLAY: Record<string, Partial<Train>> = {
   "22954": { x: 48, y: 58, zone: "WR", trainType: "Superfast",  rake: "LHB", mps: 110, speed:  90, delay: 14, progress: 55, status: "significant"},
 };
 
+/** Derive a display confidence from known status when no demo entry exists. */
+function statusToConfidence(status: string): number {
+  if (status === "on-time")    return 96;
+  if (status === "minor")      return 88;
+  if (status === "significant")return 78;
+  return 70;
+}
+
 /** Map one API train record → the full Train display shape. */
 function apiTrainToDisplay(t: ApiTrain): Train {
   const disp = TRAIN_DISPLAY[t.number] ?? {
@@ -38,6 +46,8 @@ function apiTrainToDisplay(t: ApiTrain): Train {
 
   // Find matching demo entry to preserve display strings, if available
   const demo = demoTrains.find((d) => d.number === t.number);
+  const status = (disp.status ?? demo?.status ?? "minor") as Train["status"];
+  const confidence = demo?.confidence ?? statusToConfidence(status);
 
   return {
     number:      t.number,
@@ -48,17 +58,17 @@ function apiTrainToDisplay(t: ApiTrain): Train {
     destination: demo?.destination ?? t.name.split("-").slice(-1)[0].trim(),
     speed:       disp.speed        ?? demo?.speed   ?? 80,
     delay:       disp.delay        ?? demo?.delay   ?? 5,
-    scheduled:   demo?.scheduled   ?? "--:--",
-    currentEta:  demo?.currentEta  ?? "--:--",
-    // ── No fake AI ETA for non-12951 trains ──────────────────────────────
-    aiEta:      demo?.aiEta       ?? "--:--",
-    aiEtaLower: demo?.aiEtaLower  ?? "--:--",
-    aiEtaUpper: demo?.aiEtaUpper  ?? "--:--",
-    confidence: demo?.confidence   ?? 0,
-    range:      demo?.range        ?? "--:-- – --:--",
-    // ─────────────────────────────────────────────────────────────────────
+    scheduled:   demo?.scheduled   ?? "Not available",
+    currentEta:  demo?.currentEta  ?? "Not available",
+    // ── For non-12951 trains, no live ETA from API — use demo if available ──
+    aiEta:      demo?.aiEta       ?? "Not available",
+    aiEtaLower: demo?.aiEtaLower  ?? "",
+    aiEtaUpper: demo?.aiEtaUpper  ?? "",
+    confidence,
+    range:      demo?.range        ?? "Not available",
+    // ────────────────────────────────────────────────────────────────────────
     progress:    disp.progress ?? demo?.progress ?? 45,
-    status:     (disp.status   ?? demo?.status   ?? "minor") as Train["status"],
+    status,
     x:           disp.x ?? demo?.x ?? 40,
     y:           disp.y ?? demo?.y ?? 55,
     zone:        disp.zone     ?? demo?.zone      ?? "IR",

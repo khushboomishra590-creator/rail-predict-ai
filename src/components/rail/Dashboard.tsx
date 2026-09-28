@@ -2,7 +2,7 @@
 import { useTrainEta } from "@/hooks/use-train-eta";
 import { useTrainList } from "@/hooks/use-train-list";
 import { useRouteEta } from "@/hooks/use-route-eta";
-import { api, fmtEtaTime, type EtaResponse, type RouteEtaResponse } from "@/lib/api";
+import { api, fmtEtaTime, fmtEtaRange, fmtEtaOrState, type EtaResponse, type RouteEtaResponse } from "@/lib/api";
 import {
   AlertTriangle, Bell, BrainCircuit, ChevronDown, CircleUserRound,
   Moon, Pause, Play, RotateCcw, Search, Sparkles, Sun, TrainFront, Zap,
@@ -227,9 +227,9 @@ export default function Dashboard() {
             </h1>
           </div>
 
-          {view === "Dashboard"        && <DashboardView selected={liveSelected} setSelected={setSelected} tick={tick} congestion={congestion} triggerCongestion={triggerCongestion} query={query} setQuery={setQuery} filtered={filtered} liveEta={liveEta} refreshEta={refreshEta} allTrains={sourceTrains} />}
+          {view === "Dashboard"        && <DashboardView selected={liveSelected} setSelected={setSelected} tick={tick} congestion={congestion} triggerCongestion={triggerCongestion} query={query} setQuery={setQuery} filtered={filtered} liveEta={liveEta} refreshEta={refreshEta} allTrains={sourceTrains} etaLoading={etaState.status === "loading"} />}
           {view === "Live Trains"      && <LiveTrainsView query={query} setQuery={setQuery} filtered={filtered} onSelect={(t) => { setSelected(t); setView("Dashboard"); }} />}
-          {view === "ETA Prediction"   && <PredictionView selected={liveSelected} congestion={congestion} triggerCongestion={triggerCongestion} />}
+          {view === "ETA Prediction"   && <PredictionView selected={liveSelected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={liveEta} refreshEta={refreshEta} etaLoading={etaState.status === "loading"} />}
           {view === "Passenger Tracker"&& <PassengerTrackerView />}
           {view === "Station PIDS"     && <StationPIDSView />}
           {view === "Scenario Sandbox" && <ScenarioSandboxView activeScenarios={activeScenarios} onInject={injectScenario} onClear={clearScenarios} alerts={alerts} />}
@@ -271,13 +271,14 @@ function SimulationControls({ running, setRunning, simMode, setSimMode, speed, s
 }
 
 // ─── Dashboard view ───────────────────────────────────────────────────────────
-function DashboardView({ selected, setSelected, tick, congestion, triggerCongestion, query, setQuery, filtered, liveEta, refreshEta, allTrains }: {
+function DashboardView({ selected, setSelected, tick, congestion, triggerCongestion, query, setQuery, filtered, liveEta, refreshEta, allTrains, etaLoading }: {
   selected: Train; setSelected: (t: Train) => void; tick: number; congestion: boolean;
   triggerCongestion: () => void; query: string; setQuery: (v: string) => void; filtered: Train[];
-  liveEta: EtaResponse | null; refreshEta: () => void; allTrains: Train[];
+  liveEta: EtaResponse | null; refreshEta: () => void; allTrains: Train[]; etaLoading: boolean;
 }) {
   const spark = (n: number) => Array.from({ length: 8 }, (_, i) => n + Math.sin(i + tick) * n * 0.05);
   const eta12951 = selected.number === "12951" ? liveEta : null;
+  const loading12951 = selected.number === "12951" ? etaLoading : false;
   return (
     <>
       {/* KPI row */}
@@ -298,7 +299,7 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
             trains={allTrains.map((t: Train, i: number) => ({ ...t, y: t.y + ((tick + i) % 4) * 0.25 }))}
             selected={selected} onSelect={setSelected} congestion={congestion} />
         </Panel>
-        <TrainDetail train={selected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={eta12951} />
+        <TrainDetail train={selected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={eta12951} etaLoading={loading12951} />
       </div>
 
       {/* Capability strip */}
@@ -306,7 +307,7 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
 
       {/* Prediction + Factors */}
       <div className="my-4 grid gap-4 xl:grid-cols-[1.35fr_.65fr]">
-        <PredictionPanel selected={selected} congestion={congestion} liveEta={eta12951} />
+        <PredictionPanel selected={selected} congestion={congestion} liveEta={eta12951} etaLoading={loading12951} />
         <FactorsPanel congestion={congestion} />
       </div>
 
@@ -328,9 +329,15 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
                   <p className="mt-0.5 text-[9px] text-muted-foreground">{t.zone} · {t.trainType} · {t.rake}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-mono text-xs text-live">AI {t.aiEta}</p>
-                  <p className="mt-0.5 text-[9px] text-muted-foreground">{t.aiEtaLower}–{t.aiEtaUpper}</p>
-                  <p className={`mt-1 text-[9px] ${confColor(t.confidence)}`}>{t.confidence}% CONF.</p>
+                  <p className="font-mono text-xs text-live">
+                    AI {fmtEtaTime(t.aiEta) === "Not available" ? "—" : fmtEtaTime(t.aiEta)}
+                  </p>
+                  {fmtEtaRange(t.aiEtaLower, t.aiEtaUpper) !== "Not available" && (
+                    <p className="mt-0.5 text-[9px] text-muted-foreground">{fmtEtaRange(t.aiEtaLower, t.aiEtaUpper)}</p>
+                  )}
+                  {t.confidence > 0 && (
+                    <p className={`mt-1 text-[9px] ${confColor(t.confidence)}`}>{t.confidence}% CONF.</p>
+                  )}
                 </div>
               </button>
             ))}
@@ -340,7 +347,7 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
 
       {/* Bottom widgets */}
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <PassengerCard selected={selected} />
+        <PassengerCard selected={selected} liveEta={eta12951} etaLoading={loading12951} />
         <StationDisplayBoard />
       </div>
     </>
@@ -348,7 +355,18 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
 }
 
 // ─── Train detail panel ───────────────────────────────────────────────────────
-function TrainDetail({ train, congestion, triggerCongestion, liveEta }: { train: Train; congestion: boolean; triggerCongestion: () => void; liveEta: EtaResponse | null }) {
+function TrainDetail({ train, congestion, triggerCongestion, liveEta, etaLoading = false }: {
+  train: Train; congestion: boolean; triggerCongestion: () => void;
+  liveEta: EtaResponse | null; etaLoading?: boolean;
+}) {
+  const isLive = liveEta !== null;
+  const fmt = (iso: string | null | undefined) => fmtEtaOrState(iso, etaLoading);
+  const range = etaLoading
+    ? "Calculating..."
+    : isLive
+      ? fmtEtaRange(liveEta!.eta_lower, liveEta!.eta_upper)
+      : fmtEtaRange(train.aiEtaLower, train.aiEtaUpper);
+
   return (
     <Panel title={`${train.number} · ${train.shortName}`} kicker="Selected train" action={<StatusDot status={train.status} />} className="h-full">
       <div className="p-4">
@@ -356,22 +374,33 @@ function TrainDetail({ train, congestion, triggerCongestion, liveEta }: { train:
         <div className="mb-4 flex items-center gap-3 border-b border-border pb-4">
           <div className="flex size-10 items-center justify-center bg-primary/10 text-primary"><TrainFront /></div>
           <div>
-            <p className="text-sm font-semibold">{liveEta ? liveEta.current_station : train.current}</p>
-            <p className="text-[10px] text-muted-foreground">Next · {liveEta ? liveEta.next_station : train.next}</p>
+            <p className="text-sm font-semibold">
+              {etaLoading ? "Locating…" : isLive ? liveEta!.current_station : train.current}
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              Next · {etaLoading ? "…" : isLive ? liveEta!.next_station : train.next}
+            </p>
             <p className="text-[9px] text-muted-foreground">{train.zone} · {train.trainType} · MPS {train.mps} km/h</p>
           </div>
           <div className="ml-auto text-right">
-            <p className="font-mono text-lg font-semibold">{liveEta ? liveEta.current_speed : train.speed} <span className="text-[10px] text-muted-foreground">km/h</span></p>
+            <p className="font-mono text-lg font-semibold">
+              {etaLoading ? "…" : isLive ? liveEta!.current_speed : train.speed}{" "}
+              <span className="text-[10px] text-muted-foreground">km/h</span>
+            </p>
             <p className="text-[9px] uppercase text-live">Movement verified</p>
           </div>
         </div>
 
         {/* metrics grid */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-4">
-          <Metric label="Current delay"      value={liveEta ? `+${liveEta.current_delay} min` : `+${train.delay} min`} />
-          <Metric label="Scheduled ETA"      value={liveEta ? fmtEtaTime(liveEta.scheduled_eta) : train.scheduled} />
-          <Metric label="Current ETA"        value={liveEta ? fmtEtaTime(liveEta.predicted_eta) : train.currentEta} />
-          <Metric label="AI Predicted ETA"   value={liveEta ? fmtEtaTime(liveEta.predicted_eta) : train.aiEta} accent />
+          <Metric label="Current delay"
+            value={etaLoading ? "Calculating..." : isLive ? `+${liveEta!.current_delay} min` : `+${train.delay} min`} />
+          <Metric label="Scheduled ETA"
+            value={isLive ? fmt(liveEta!.scheduled_eta) : train.scheduled} />
+          <Metric label="Current ETA"
+            value={isLive ? fmt(liveEta!.predicted_eta) : train.currentEta} />
+          <Metric label="AI Predicted ETA"
+            value={isLive ? fmt(liveEta!.predicted_eta) : train.aiEta} accent />
         </div>
 
         {/* progress */}
@@ -400,15 +429,21 @@ function TrainDetail({ train, congestion, triggerCongestion, liveEta }: { train:
             <span className="text-[10px] uppercase text-muted-foreground">Prediction range</span>
             <b className={`font-mono text-[11px] ${confColor(train.confidence)}`}>{train.confidence}%</b>
           </div>
-          <p className="mt-1 font-mono text-sm">{liveEta ? `${fmtEtaTime(liveEta.eta_lower)} - ${fmtEtaTime(liveEta.eta_upper)}` : `${train.aiEtaLower} - ${train.aiEtaUpper}`}</p>
-          <div className="mt-2 flex items-center gap-1">
-            <span className="text-[9px] text-muted-foreground">{liveEta ? fmtEtaTime(liveEta.eta_lower) : train.aiEtaLower}</span>
-            <div className="relative h-1.5 flex-1 rounded bg-muted">
-              <div className="absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-live bg-background" />
-              <div className="h-full w-1/2 rounded bg-live/40" />
+          <p className={`mt-1 font-mono text-sm ${etaLoading ? "text-muted-foreground" : ""}`}>{range}</p>
+          {!etaLoading && (
+            <div className="mt-2 flex items-center gap-1">
+              <span className="text-[9px] text-muted-foreground">
+                {isLive ? fmtEtaTime(liveEta!.eta_lower) : fmtEtaTime(train.aiEtaLower)}
+              </span>
+              <div className="relative h-1.5 flex-1 rounded bg-muted">
+                <div className="absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-live bg-background" />
+                <div className="h-full w-1/2 rounded bg-live/40" />
+              </div>
+              <span className="text-[9px] text-muted-foreground">
+                {isLive ? fmtEtaTime(liveEta!.eta_upper) : fmtEtaTime(train.aiEtaUpper)}
+              </span>
             </div>
-            <span className="text-[9px] text-muted-foreground">{liveEta ? fmtEtaTime(liveEta.eta_upper) : train.aiEtaUpper}</span>
-          </div>
+          )}
         </div>
 
         <Button onClick={triggerCongestion} disabled={congestion}
@@ -543,15 +578,33 @@ function CapabilityStrip() {
 }
 
 // ─── Prediction panel ─────────────────────────────────────────────────────────
-function PredictionPanel({ selected, congestion, liveEta }: { selected: Train; congestion: boolean; liveEta: EtaResponse | null }) {
-  const aiEta = liveEta ? fmtEtaTime(liveEta.predicted_eta) : (congestion && selected.number === "12951" ? "22:01" : selected.aiEta);
-  const improvement = liveEta ? `${liveEta.delay_adjustment > 0 ? "+" : ""}${liveEta.delay_adjustment} min vs schedule` : (congestion ? "-1 min" : "-7 min");
+// ─── Prediction panel ─────────────────────────────────────────────────────────
+function PredictionPanel({ selected, congestion, liveEta, etaLoading = false }: {
+  selected: Train; congestion: boolean; liveEta: EtaResponse | null; etaLoading?: boolean;
+}) {
+  const isLive = liveEta !== null;
+  const fmt = (iso: string | null | undefined) => fmtEtaOrState(iso, etaLoading);
+  const aiEta = isLive
+    ? fmt(liveEta!.predicted_eta)
+    : (congestion && selected.number === "12951" ? "22:01" : selected.aiEta);
+  const scheduledEta = isLive ? fmt(liveEta!.scheduled_eta) : selected.scheduled;
+  const currentEta  = isLive ? fmt(liveEta!.predicted_eta)  : selected.currentEta;
+  const improvement = isLive
+    ? `${liveEta!.delay_adjustment > 0 ? "+" : ""}${liveEta!.delay_adjustment} min vs schedule`
+    : (congestion ? "-1 min" : "-7 min");
+  const rangeLo = isLive ? liveEta!.eta_lower : selected.aiEtaLower;
+  const rangeHi = isLive ? liveEta!.eta_upper : selected.aiEtaUpper;
+  const rangeStr = etaLoading
+    ? "Calculating..."
+    : fmtEtaRange(rangeLo, rangeHi);
+  const uncertainty = isLive ? `±${liveEta!.uncertainty_minutes} min` : "±5 min";
+
   return (
     <Panel title="AI ETA Prediction" kicker="Dynamic comparison"
       action={<span className={`font-mono text-xs ${confColor(selected.confidence)}`}>CONF {selected.confidence}%</span>}>
       <div className="grid border-b border-border sm:grid-cols-3">
-        <div className="p-4"><Metric label="Scheduled ETA" value={liveEta ? fmtEtaTime(liveEta.scheduled_eta) : "18:40"} /></div>
-        <div className="border-y border-border p-4 sm:border-x sm:border-y-0"><Metric label="Current Railway ETA" value={liveEta ? fmtEtaTime(liveEta.scheduled_eta) : "18:56"} /></div>
+        <div className="p-4"><Metric label="Scheduled ETA" value={scheduledEta} /></div>
+        <div className="border-y border-border p-4 sm:border-x sm:border-y-0"><Metric label="Current Railway ETA" value={currentEta} /></div>
         <div className="bg-live/5 p-4">
           <Metric label="AI Predicted ETA" value={aiEta} accent />
           <p className="mt-1 text-[10px] text-success">{improvement} vs current</p>
@@ -567,19 +620,30 @@ function PredictionPanel({ selected, congestion, liveEta }: { selected: Train; c
           <span className="size-3 rounded-full bg-live ring-4 ring-live/15" />
         </div>
         <div className="flex justify-between text-[9px] uppercase text-muted-foreground">
-          <span>Scheduled {liveEta ? fmtEtaTime(liveEta.scheduled_eta) : "18:40"}</span><span>Current {liveEta ? fmtEtaTime(liveEta.scheduled_eta) : "18:56"}</span>
+          <span>Scheduled {scheduledEta}</span>
+          <span>Current {currentEta}</span>
           <span className="text-live">AI {aiEta}</span>
         </div>
         {/* range bar */}
         <div className="mt-3 flex items-center gap-2 rounded border border-live/20 bg-live/5 px-3 py-2">
-          <span className="text-[9px] text-muted-foreground">{liveEta ? fmtEtaTime(liveEta.eta_lower) : selected.aiEtaLower}</span>
+          <span className="text-[9px] text-muted-foreground">
+            {etaLoading ? "…" : fmtEtaTime(rangeLo)}
+          </span>
           <div className="relative h-1 flex-1 rounded bg-muted">
             <div className="absolute inset-0 rounded bg-live/30" />
             <div className="absolute left-1/2 top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-live bg-background" />
           </div>
-          <span className="text-[9px] text-muted-foreground">{liveEta ? fmtEtaTime(liveEta.eta_upper) : selected.aiEtaUpper}</span>
-          <span className={`ml-1 text-[10px] font-semibold ${confColor(selected.confidence)}`}>{liveEta ? `±${liveEta.uncertainty_minutes} min` : "±5 min"}</span>
+          <span className="text-[9px] text-muted-foreground">
+            {etaLoading ? "…" : fmtEtaTime(rangeHi)}
+          </span>
+          <span className={`ml-1 text-[10px] font-semibold ${confColor(selected.confidence)}`}>
+            {etaLoading ? "…" : uncertainty}
+          </span>
         </div>
+        {/* full range label */}
+        <p className="mt-2 font-mono text-xs text-muted-foreground">
+          Range: <span className={isLive && !etaLoading ? "text-foreground font-semibold" : ""}>{rangeStr}</span>
+        </p>
         <p className="mt-4 border-l-2 border-primary pl-3 text-xs leading-relaxed text-muted-foreground">
           AI prediction dynamically updates using real-time train movement, historical sectional delays, congestion, weather, and network conditions across 29 features.
         </p>
@@ -627,6 +691,8 @@ function StationTable({ trainNumber, trainName }: { trainNumber: string; trainNa
   const [selectedStation, setSelectedStation] = useState<string | null>(null);
 
   const routeData = state.status === "ok" ? state.data : null;
+  const isLive    = state.status === "ok";
+  const isLoading = state.status === "loading" || state.status === "idle";
 
   // Build rows: live API data when available, demo fallback otherwise
   const rows = useMemo(() => {
@@ -634,11 +700,12 @@ function StationTable({ trainNumber, trainName }: { trainNumber: string; trainNa
       return routeData.stations.map((s) => ({
           station: s.next_station,
           stationCode: (s.next_station.split(" ")[0] ?? s.next_station).toUpperCase().slice(0, 4),
-          scheduled: fmtEtaTime(s.scheduled_eta),
-          current: fmtEtaTime(s.predicted_eta),
-          ai: fmtEtaTime(s.predicted_eta),
-          aiLower: fmtEtaTime(s.eta_lower),
-          aiUpper: fmtEtaTime(s.eta_upper),
+          scheduled: isLoading ? "Calculating..." : fmtEtaTime(s.scheduled_eta),
+          current:   isLoading ? "Calculating..." : fmtEtaTime(s.predicted_eta),
+          ai:        isLoading ? "Calculating..." : fmtEtaTime(s.predicted_eta),
+          aiLower:   isLoading ? "Calculating..." : fmtEtaTime(s.eta_lower),
+          aiUpper:   isLoading ? "Calculating..." : fmtEtaTime(s.eta_upper),
+          aiRange:   isLoading ? "Calculating..." : fmtEtaRange(s.eta_lower, s.eta_upper),
           delay: s.predicted_delay,
           confidence: Math.max(70, Math.min(99, 97 - Math.round(s.uncertainty_minutes * 1.5))),
           reason: s.predicted_delay > 10 ? "Cumulative section delay" : s.predicted_delay > 5 ? "Preceding train delay" : "Section congestion",
@@ -647,11 +714,13 @@ function StationTable({ trainNumber, trainName }: { trainNumber: string; trainNa
         }));
     }
     // fallback to demo data
-    return stations.map((s) => ({ ...s, isLive: false }));
-  }, [routeData]);
-
-  const isLive = state.status === "ok";
-  const isLoading = state.status === "loading" || state.status === "idle";
+    return stations.map((s) => ({
+      ...s,
+      aiRange: fmtEtaRange(s.aiLower, s.aiUpper),
+      isLive: false,
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeData, isLoading]);
 
   return (
     <Panel
@@ -698,7 +767,7 @@ function StationTable({ trainNumber, trainName }: { trainNumber: string; trainNa
                   <td className="px-4 py-3 font-mono">{s.current}</td>
                   <td className="px-4 py-3">
                     <p className="font-mono font-semibold text-live">{s.ai}</p>
-                    <p className="mt-0.5 text-[9px] text-muted-foreground">{s.aiLower} – {s.aiUpper}</p>
+                    <p className="mt-0.5 text-[9px] text-muted-foreground">{s.aiRange}</p>
                   </td>
                   <td className="px-4 py-3 font-mono">{s.platform}</td>
                   <td className="px-4 py-3">
@@ -725,7 +794,7 @@ function StationTable({ trainNumber, trainName }: { trainNumber: string; trainNa
               <span>Scheduled: <b className="text-foreground font-mono">{s.scheduled}</b></span>
               <span>AI ETA: <b className="text-live font-mono">{s.ai}</b></span>
               <span>Delay: <b className={s.delay > 0 ? "text-warning" : "text-success"}>{s.delay > 0 ? `+${s.delay} min` : "On time"}</b></span>
-              <span>Range: <b className="text-foreground font-mono">{s.aiLower} – {s.aiUpper}</b></span>
+              <span>Range: <b className="text-foreground font-mono">{s.aiRange}</b></span>
               <span>Confidence: <b className={confColor(s.confidence)}>{s.confidence}%</b></span>
               <span>Platform: <b className="text-foreground">{s.platform}</b></span>
             </div>
@@ -786,8 +855,12 @@ function LiveTrainsView({ query, setQuery, filtered, onSelect }: {
                 <td className="px-4 font-mono text-warning">+{t.delay} min</td>
                 <td className="px-4 font-mono">{t.scheduled}</td>
                 <td className="px-4">
-                  <p className="font-mono font-bold text-live">{t.aiEta}</p>
-                  <p className="text-[9px] text-muted-foreground">{t.aiEtaLower}–{t.aiEtaUpper}</p>
+                  <p className="font-mono font-bold text-live">
+                    {fmtEtaTime(t.aiEta) === "Not available" ? "No prediction" : t.aiEta}
+                  </p>
+                  {fmtEtaRange(t.aiEtaLower, t.aiEtaUpper) !== "Not available" && (
+                    <p className="text-[9px] text-muted-foreground">{fmtEtaRange(t.aiEtaLower, t.aiEtaUpper)}</p>
+                  )}
                 </td>
                 <td className={`px-4 font-mono font-semibold ${confColor(t.confidence)}`}>{t.confidence}%</td>
                 <td className="px-4"><span className="flex items-center gap-2 capitalize"><StatusDot status={t.status} />{t.status}</span></td>
@@ -801,12 +874,17 @@ function LiveTrainsView({ query, setQuery, filtered, onSelect }: {
 }
 
 // ─── ETA Prediction view ──────────────────────────────────────────────────────
-function PredictionView({ selected, congestion, triggerCongestion }: { selected: Train; congestion: boolean; triggerCongestion: () => void }) {
+function PredictionView({ selected, congestion, triggerCongestion, liveEta, refreshEta, etaLoading }: {
+  selected: Train; congestion: boolean; triggerCongestion: () => void;
+  liveEta: EtaResponse | null; refreshEta: () => void; etaLoading: boolean;
+}) {
+  const eta12951 = selected.number === "12951" ? liveEta : null;
+  const loading12951 = selected.number === "12951" ? etaLoading : false;
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[1.3fr_.7fr]">
-        <PredictionPanel selected={selected} congestion={congestion} liveEta={null} />
-        <TrainDetail train={selected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={null} />
+        <PredictionPanel selected={selected} congestion={congestion} liveEta={eta12951} etaLoading={loading12951} />
+        <TrainDetail train={selected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={eta12951} etaLoading={loading12951} />
       </div>
       <Panel title="ETA Prediction Curve" kicker="Scheduled vs Current vs AI across stations">
         <div className="h-[340px] p-4">
@@ -824,13 +902,31 @@ function PredictionView({ selected, congestion, triggerCongestion }: { selected:
           </ResponsiveContainer>
         </div>
       </Panel>
+
+      {/* Simulated RTIS — visible on ETA Prediction only */}
+      <SimulatedRtisPanel refreshEta={refreshEta} />
+
       <StationTable trainNumber={selected.number} trainName={selected.shortName} />
     </div>
   );
 }
 
 // ─── Passenger card (dashboard widget) ───────────────────────────────────────
-function PassengerCard({ selected }: { selected: Train }) {
+function PassengerCard({ selected, liveEta, etaLoading = false }: {
+  selected: Train; liveEta: EtaResponse | null; etaLoading?: boolean;
+}) {
+  const isLive = liveEta !== null;
+  const expectedArrival = isLive
+    ? fmtEtaOrState(liveEta!.predicted_eta, etaLoading)
+    : selected.aiEta;
+  const etaRange = etaLoading
+    ? "Calculating..."
+    : isLive
+      ? fmtEtaRange(liveEta!.eta_lower, liveEta!.eta_upper)
+      : fmtEtaRange(selected.aiEtaLower, selected.aiEtaUpper);
+  const delayMin = isLive ? liveEta!.current_delay : selected.delay;
+  const uncertainty = isLive ? `±${liveEta!.uncertainty_minutes} min` : "±5 min";
+
   return (
     <Panel title="Passenger View" kicker="Live prediction for travellers">
       <div className="p-5">
@@ -844,16 +940,22 @@ function PassengerCard({ selected }: { selected: Train }) {
           </span>
         </div>
         <div className="grid grid-cols-2 gap-4 border-y border-border py-4">
-          <Metric label="Current location" value={selected.current} />
-          <Metric label="Next station"     value={selected.next} />
-          <Metric label="Expected arrival" value={selected.aiEta} accent />
-          <Metric label="ETA range"        value={`${selected.aiEtaLower} – ${selected.aiEtaUpper}`} />
+          <Metric label="Current location" value={isLive ? liveEta!.current_station : selected.current} />
+          <Metric label="Next station"     value={isLive ? liveEta!.next_station : selected.next} />
+          <Metric label="Expected arrival" value={expectedArrival} accent />
+          <Metric label="ETA range"        value={etaRange} />
         </div>
         <p className="mt-4 text-xs text-muted-foreground">
-          <b className="text-live">AI prediction:</b> {selected.delay > 0 ? `Train is running ${selected.delay} min late. Model predicts partial recovery — expected arrival ${selected.aiEta}.` : "Train is running on time. Model predicts on-schedule arrival."}
+          <b className="text-live">AI prediction:</b>{" "}
+          {etaLoading
+            ? "Calculating expected arrival time…"
+            : delayMin > 0
+              ? `Train is running ${delayMin} min late. Model predicts partial recovery — expected arrival ${expectedArrival}.`
+              : "Train is running on time. Model predicts on-schedule arrival."}
         </p>
         <p className="mt-2 text-[10px] text-muted-foreground">
-          Confidence: <span className={`font-semibold ${confColor(selected.confidence)}`}>{selected.confidence}%</span> · Uncertainty: ±5 min (P90 empirical range)
+          Confidence: <span className={`font-semibold ${confColor(selected.confidence)}`}>{selected.confidence}%</span>{" "}
+          · Uncertainty: <span className="font-semibold text-warning">{uncertainty}</span> (P90 empirical range)
         </p>
       </div>
     </Panel>
@@ -1438,10 +1540,10 @@ function ArchitectureView() {
                     ["Next station",      etaResult.next_station],
                     ["Current delay",     `${etaResult.current_delay} min`],
                     ["Speed",             `${etaResult.current_speed} km/h`],
-                    ["Scheduled ETA",     fmtEtaTime(etaResult.scheduled_eta)],
-                    ["AI Predicted ETA",  fmtEtaTime(etaResult.predicted_eta)],
-                    ["ETA lower",         fmtEtaTime(etaResult.eta_lower)],
-                    ["ETA upper",         fmtEtaTime(etaResult.eta_upper)],
+                    ["Scheduled ETA",     fmtEtaOrState(etaResult.scheduled_eta, false)],
+                    ["AI Predicted ETA",  fmtEtaOrState(etaResult.predicted_eta, false)],
+                    ["ETA lower",         fmtEtaOrState(etaResult.eta_lower, false)],
+                    ["ETA upper",         fmtEtaOrState(etaResult.eta_upper, false)],
                     ["Uncertainty",       `±${etaResult.uncertainty_minutes} min`],
                     ["Predicted delay",   `+${etaResult.predicted_delay} min`],
                   ] as [string, string][]).map(([k, v]) => (
@@ -1512,9 +1614,9 @@ function ArchitectureView() {
                 {([
                   ["Current station",  etaResult.current_station],
                   ["Next station",     etaResult.next_station],
-                  ["Scheduled ETA",    fmtEtaTime(etaResult.scheduled_eta)],
-                  ["AI ETA",           fmtEtaTime(etaResult.predicted_eta)],
-                  ["Range",            `${fmtEtaTime(etaResult.eta_lower)} – ${fmtEtaTime(etaResult.eta_upper)}`],
+                  ["Scheduled ETA",    fmtEtaOrState(etaResult.scheduled_eta, false)],
+                  ["AI ETA",           fmtEtaOrState(etaResult.predicted_eta, false)],
+                  ["Range",            fmtEtaRange(etaResult.eta_lower, etaResult.eta_upper)],
                   ["Predicted delay",  `+${etaResult.predicted_delay} min`],
                   ["Uncertainty",      `±${etaResult.uncertainty_minutes} min`],
                   ["Speed",            `${etaResult.current_speed} km/h`],
