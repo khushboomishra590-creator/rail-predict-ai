@@ -345,13 +345,9 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
       </div>
 
       {/* Bottom widgets */}
-      {/* PassengerCard always shows train 12951 live data — independent of selected train */}
+      {/* PassengerCard follows the selected train; liveEta only available for 12951 */}
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <PassengerCard
-          selected={allTrains.find((t) => t.number === "12951") ?? selected}
-          liveEta={liveEta}
-          etaLoading={etaLoading}
-        />
+        <PassengerCard selected={selected} liveEta={eta12951} etaLoading={loading12951} />
         <StationDisplayBoard />
       </div>
     </>
@@ -947,32 +943,52 @@ function PassengerCard({ selected, liveEta, etaLoading = false }: {
   selected: Train; liveEta: EtaResponse | null; etaLoading?: boolean;
 }) {
   const isLive = liveEta !== null;
+
+  // For current/next station, prefer live API → then allJourneyStops → then train object
+  const trainStops = allJourneyStops[selected.number];
+  const currentStop = trainStops?.find((s) => s.status === "current");
+  const nextStop    = trainStops?.find((s) => s.status === "upcoming");
+
+  const currentLocation = isLive
+    ? (etaLoading ? "Loading…" : liveEta!.current_station)
+    : currentStop?.station ?? selected.current;
+  const nextStation = isLive
+    ? (etaLoading ? "Loading…" : liveEta!.next_station)
+    : nextStop?.station ?? selected.next;
+
   const expectedArrival = isLive
     ? fmtEtaOrState(liveEta!.predicted_eta, etaLoading)
-    : selected.aiEta;
+    : currentStop?.ai ?? selected.aiEta;
+
   const etaRange = etaLoading
     ? "Calculating..."
     : isLive
       ? fmtEtaRange(liveEta!.eta_lower, liveEta!.eta_upper)
-      : fmtEtaRange(selected.aiEtaLower, selected.aiEtaUpper);
-  const delayMin = isLive ? liveEta!.current_delay : selected.delay;
+      : fmtEtaRange(
+          currentStop?.lower ?? selected.aiEtaLower,
+          currentStop?.upper ?? selected.aiEtaUpper,
+        );
+
+  const delayMin = isLive ? liveEta!.current_delay : (currentStop?.delay ?? selected.delay);
   const uncertainty = isLive ? `±${liveEta!.uncertainty_minutes} min` : "±5 min";
+  const isLiveBadge = isLive || selected.delay > 0;
 
   return (
-    <Panel title="Passenger View" kicker="Live prediction for travellers">
+    <Panel title="Passenger View" kicker={`${selected.number} · ${selected.shortName}`}>
       <div className="p-5">
         <div className="mb-4 flex items-start justify-between">
           <div>
             <p className="font-mono text-2xl font-bold">{selected.number}</p>
             <p className="text-xs text-muted-foreground">{selected.name}</p>
           </div>
-          <span className="flex items-center gap-1.5 bg-success/10 px-2 py-1 text-[10px] font-semibold text-success">
-            <StatusDot status="on-time" /> On Route
+          <span className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold ${isLive ? "bg-live/10 text-live" : "bg-success/10 text-success"}`}>
+            <StatusDot status={isLiveBadge ? "minor" : "on-time"} />
+            {isLive ? "LIVE · M3 AI" : "On Route"}
           </span>
         </div>
         <div className="grid grid-cols-2 gap-4 border-y border-border py-4">
-          <Metric label="Current location" value={isLive ? liveEta!.current_station : selected.current} />
-          <Metric label="Next station"     value={isLive ? liveEta!.next_station : selected.next} />
+          <Metric label="Current location" value={currentLocation} />
+          <Metric label="Next station"     value={nextStation} />
           <Metric label="Expected arrival" value={expectedArrival} accent />
           <Metric label="ETA range"        value={etaRange} />
         </div>
@@ -981,7 +997,7 @@ function PassengerCard({ selected, liveEta, etaLoading = false }: {
           {etaLoading
             ? "Calculating expected arrival time…"
             : delayMin > 0
-              ? `Train is running ${delayMin} min late. Model predicts partial recovery — expected arrival ${expectedArrival}.`
+              ? `Train is running ${delayMin} min late. Expected arrival ${expectedArrival}.`
               : "Train is running on time. Model predicts on-schedule arrival."}
         </p>
         <p className="mt-2 text-[10px] text-muted-foreground">
