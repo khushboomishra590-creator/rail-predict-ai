@@ -344,8 +344,13 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
       </div>
 
       {/* Bottom widgets */}
+      {/* PassengerCard always shows train 12951 live data — independent of selected train */}
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <PassengerCard selected={selected} liveEta={eta12951} etaLoading={loading12951} />
+        <PassengerCard
+          selected={allTrains.find((t) => t.number === "12951") ?? selected}
+          liveEta={liveEta}
+          etaLoading={etaLoading}
+        />
         <StationDisplayBoard />
       </div>
     </>
