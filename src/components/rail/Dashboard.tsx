@@ -1,7 +1,8 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { useTrainEta } from "@/hooks/use-train-eta";
 import { useTrainList } from "@/hooks/use-train-list";
-import { api, fmtEtaTime, type EtaResponse } from "@/lib/api";
+import { useRouteEta } from "@/hooks/use-route-eta";
+import { api, fmtEtaTime, type EtaResponse, type RouteEtaResponse } from "@/lib/api";
 import {
   AlertTriangle, Bell, BrainCircuit, ChevronDown, CircleUserRound,
   Moon, Pause, Play, RotateCcw, Search, Sparkles, Sun, TrainFront, Zap,
@@ -318,7 +319,7 @@ function DashboardView({ selected, setSelected, tick, congestion, triggerCongest
 
       {/* Station table + Search */}
       <div className="grid gap-4 xl:grid-cols-[1.25fr_.75fr]">
-        <StationTable />
+        <StationTable trainNumber={selected.number} trainName={selected.shortName} />
         <Panel title="Train Search" kicker="Live operational feed">
           <SearchBox query={query} setQuery={setQuery} />
           <div className="divide-y divide-border">
@@ -625,9 +626,47 @@ function FactorsPanel({ congestion }: { congestion: boolean }) {
 }
 
 // ─── Station table — with range, reason, confidence colour ───────────────────
-function StationTable() {
+function StationTable({ trainNumber, trainName }: { trainNumber: string; trainName: string }) {
+  const { state } = useRouteEta(trainNumber);
+  const [selectedStation, setSelectedStation] = useState<string | null>(null);
+
+  // Build rows: live API data when available, demo fallback otherwise
+  const rows = useMemo(() => {
+    if (state.status === "ok" && state.data.stations.length > 0) {
+      return state.data.stations.map((s) => ({
+        station: s.next_station,
+        stationCode: s.next_station.split(" ")[0].toUpperCase().slice(0, 4),
+        scheduled: fmtEtaTime(s.scheduled_eta),
+        current: fmtEtaTime(s.predicted_eta),
+        ai: fmtEtaTime(s.predicted_eta),
+        aiLower: fmtEtaTime(s.eta_lower),
+        aiUpper: fmtEtaTime(s.eta_upper),
+        delay: s.predicted_delay,
+        confidence: Math.max(70, Math.min(99, 97 - Math.round(s.uncertainty_minutes * 1.5))),
+        reason: s.predicted_delay > 10 ? "Cumulative section delay" : s.predicted_delay > 5 ? "Preceding train delay" : "Section congestion",
+        platform: "—",
+        isLive: true,
+      }));
+    }
+    // fallback to demo data
+    return stations.map((s) => ({ ...s, isLive: false }));
+  }, [state]);
+
+  const isLive = state.status === "ok";
+  const isLoading = state.status === "loading" || state.status === "idle";
+
   return (
-    <Panel title="Upcoming Stations" kicker="Train 12951 · Mumbai Rajdhani">
+    <Panel
+      title="Upcoming Stations"
+      kicker={`${trainNumber} · ${trainName}`}
+      action={
+        isLive
+          ? <span className="flex items-center gap-1 text-[9px] text-live font-semibold uppercase"><i className="size-1.5 animate-pulse rounded-full bg-live inline-block" /> Live</span>
+          : isLoading
+            ? <span className="text-[9px] text-muted-foreground uppercase">Loading…</span>
+            : <span className="text-[9px] text-warning uppercase">Demo data</span>
+      }
+    >
       <div className="overflow-x-auto">
         <table className="w-full min-w-[700px] text-left text-xs">
           <thead className="bg-muted/60 text-[9px] uppercase tracking-wider text-muted-foreground">
@@ -638,29 +677,63 @@ function StationTable() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {stations.map((s) => (
-              <tr key={s.station} className="hover:bg-accent">
-                <td className="px-4 py-3">
-                  <p className="font-semibold">{s.station}</p>
-                  <p className="text-[9px] text-muted-foreground">{s.stationCode}</p>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
+                  No upcoming stations available for this train.
                 </td>
-                <td className="px-4 py-3 font-mono text-muted-foreground">{s.scheduled}</td>
-                <td className="px-4 py-3 font-mono">{s.current}</td>
-                <td className="px-4 py-3">
-                  <p className="font-mono font-semibold text-live">{s.ai}</p>
-                  <p className="mt-0.5 text-[9px] text-muted-foreground">{s.aiLower} – {s.aiUpper}</p>
-                </td>
-                <td className="px-4 py-3 font-mono">{s.platform}</td>
-                <td className="px-4 py-3">
-                  <span className="bg-warning/10 px-1.5 py-1 font-mono text-warning">+{s.delay} min</span>
-                  <p className="mt-1 text-[9px] text-muted-foreground">↑ {s.reason}</p>
-                </td>
-                <td className={`px-4 py-3 font-mono font-semibold ${confColor(s.confidence)}`}>{s.confidence}%</td>
               </tr>
-            ))}
+            )}
+            {rows.map((s) => {
+              const isSelected = selectedStation === s.station;
+              return (
+                <tr
+                  key={s.station}
+                  onClick={() => setSelectedStation(isSelected ? null : s.station)}
+                  className={`cursor-pointer transition-colors hover:bg-accent ${isSelected ? "bg-accent/80 ring-1 ring-inset ring-primary/30" : ""}`}
+                >
+                  <td className="px-4 py-3">
+                    <p className="font-semibold">{s.station}</p>
+                    <p className="text-[9px] text-muted-foreground">{s.stationCode}</p>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-muted-foreground">{s.scheduled}</td>
+                  <td className="px-4 py-3 font-mono">{s.current}</td>
+                  <td className="px-4 py-3">
+                    <p className="font-mono font-semibold text-live">{s.ai}</p>
+                    <p className="mt-0.5 text-[9px] text-muted-foreground">{s.aiLower} – {s.aiUpper}</p>
+                  </td>
+                  <td className="px-4 py-3 font-mono">{s.platform}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-1.5 py-1 font-mono ${s.delay > 0 ? "bg-warning/10 text-warning" : "bg-success/10 text-success"}`}>
+                      {s.delay > 0 ? `+${s.delay} min` : "On time"}
+                    </span>
+                    <p className="mt-1 text-[9px] text-muted-foreground">↑ {s.reason}</p>
+                  </td>
+                  <td className={`px-4 py-3 font-mono font-semibold ${confColor(s.confidence)}`}>{s.confidence}%</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+      {/* expanded detail row */}
+      {selectedStation && (() => {
+        const s = rows.find((r) => r.station === selectedStation);
+        if (!s) return null;
+        return (
+          <div className="border-t border-border bg-accent/40 px-4 py-3 text-xs">
+            <p className="mb-1 font-semibold text-foreground">{s.station} — Station Detail</p>
+            <div className="grid grid-cols-3 gap-2 text-[10px] text-muted-foreground">
+              <span>Scheduled: <b className="text-foreground font-mono">{s.scheduled}</b></span>
+              <span>AI ETA: <b className="text-live font-mono">{s.ai}</b></span>
+              <span>Delay: <b className={s.delay > 0 ? "text-warning" : "text-success"}>{s.delay > 0 ? `+${s.delay} min` : "On time"}</b></span>
+              <span>Range: <b className="text-foreground font-mono">{s.aiLower} – {s.aiUpper}</b></span>
+              <span>Confidence: <b className={confColor(s.confidence)}>{s.confidence}%</b></span>
+              <span>Platform: <b className="text-foreground">{s.platform}</b></span>
+            </div>
+          </div>
+        );
+      })()}
       {/* cascade warning */}
       <div className="border-t border-border bg-warning/5 px-4 py-2.5 text-xs">
         ⚠ <b className="text-warning">Cascade effect:</b> Train 12952 (following) predicted to arrive
@@ -753,7 +826,7 @@ function PredictionView({ selected, congestion, triggerCongestion }: { selected:
           </ResponsiveContainer>
         </div>
       </Panel>
-      <StationTable />
+      <StationTable trainNumber={selected.number} trainName={selected.shortName} />
     </div>
   );
 }
