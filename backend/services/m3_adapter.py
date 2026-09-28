@@ -200,8 +200,8 @@ def _build_eta_input(run: TrainRun, db: Session) -> ETAInput | None:
         scheduled_arrival=sched_arr,
     )
 
-    # ── HistoricalFeatures (CSV) ──────────────────────────────────────────────
-    hist = get_historical_features(current_section)
+    # ── HistoricalFeatures (CSV — train+section specific lookup) ─────────────
+    hist = get_historical_features(current_section, train_id=train_number)
     historical = HistoricalFeatures(
         historical_section_median=hist["historical_section_median"],
         historical_section_P90=hist["historical_section_P90"],
@@ -330,7 +330,7 @@ def get_route_eta_from_engine(run: TrainRun, db: Session) -> RouteETAResponse | 
             scheduled_arrival=sched_arr,
         )
 
-        hist = get_historical_features(section_for_stop)
+        hist = get_historical_features(section_for_stop, train_id=train_number)
         historical = HistoricalFeatures(
             historical_section_median=hist["historical_section_median"],
             historical_section_P90=hist["historical_section_P90"],
