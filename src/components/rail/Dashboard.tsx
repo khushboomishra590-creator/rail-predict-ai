@@ -27,6 +27,7 @@ import {
   trains as demoTrains,
   type Train,
 } from "@/data/demo";
+import { allJourneyStops } from "@/data/railData";
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
 const nav = [
@@ -716,14 +717,41 @@ function StationTable({ trainNumber, trainName }: { trainNumber: string; trainNa
           isLive: true,
         }));
     }
-    // fallback to demo data
-    return stations.map((s) => ({
-      ...s,
-      aiRange: fmtEtaRange(s.aiLower, s.aiUpper),
-      isLive: false,
-    }));
+    // Fallback: use per-train static stop data from railData if available,
+    // otherwise show the demo stations (which are 12951's stops).
+    // This prevents showing 12951's stops when a different train is selected.
+    const trainStops = allJourneyStops[trainNumber];
+    if (trainStops && trainStops.length > 0) {
+      return trainStops
+        .filter((s) => s.status === "upcoming" || s.status === "current")
+        .map((s) => ({
+          station:    s.station,
+          stationCode: s.code || s.station.slice(0, 4).toUpperCase(),
+          scheduled:  s.sch ?? "—",
+          current:    s.ai  ?? "—",
+          ai:         s.ai  ?? "—",
+          aiLower:    s.lower ?? "",
+          aiUpper:    s.upper ?? "",
+          aiRange:    fmtEtaRange(s.lower, s.upper),
+          delay:      s.delay ?? 0,
+          confidence: 85,
+          reason:     s.delay ? (s.delay > 10 ? "Cumulative section delay" : "Preceding train delay") : "On schedule",
+          platform:   s.platform,
+          isLive:     false,
+        }));
+    }
+    // Last resort: only show demo stations if the selected train IS 12951
+    if (trainNumber === "12951") {
+      return stations.map((s) => ({
+        ...s,
+        aiRange: fmtEtaRange(s.aiLower, s.aiUpper),
+        isLive: false,
+      }));
+    }
+    // No data available for this train
+    return [];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeData, isLoading]);
+  }, [routeData, isLoading, trainNumber]);
 
   return (
     <Panel
