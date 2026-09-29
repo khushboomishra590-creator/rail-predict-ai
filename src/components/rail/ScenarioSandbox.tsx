@@ -86,10 +86,20 @@ export function ScenarioSandboxView({
     if (activeScenarios.includes(s.id)) return;
     setLoading(true);
     setApiError(null);
+
+    // Map railData scenario ids → backend DisruptionType enum values
+    const typeMap: Record<string, DisruptionType> = {
+      fog:      "dense_fog",
+      freight:  "freight_conflict",
+      signal:   "signal_failure",
+      tsr:      "emergency_tsr",
+    };
+    const disruptionType: DisruptionType = typeMap[s.id] ?? (s.id as DisruptionType);
+
     try {
       const resp: DisruptionResponse = await api.injectDisruption({
         description: s.label,
-        type: s.id as DisruptionType,
+        type: disruptionType,
         severity: "high",
         section: null,
         impact_minutes: s.deltaMin,
