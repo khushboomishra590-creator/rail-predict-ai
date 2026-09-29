@@ -8,7 +8,9 @@ _ENV_FILE = Path(__file__).resolve().parent / ".env"
 
 
 class Settings(BaseSettings):
-    # PostgreSQL connection — override via .env
+    # PostgreSQL connection — override via .env or cloud provider env vars.
+    # Railway injects DATABASE_URL as postgresql:// — we normalise it to
+    # postgresql+psycopg2:// so SQLAlchemy uses the correct driver.
     DATABASE_URL: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/railpredict_db"
 
     # App metadata
@@ -20,6 +22,16 @@ class Settings(BaseSettings):
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
     )
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Normalise Railway's postgresql:// → postgresql+psycopg2://
+        if self.DATABASE_URL.startswith("postgresql://"):
+            object.__setattr__(
+                self,
+                "DATABASE_URL",
+                self.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1),
+            )
 
 
 settings = Settings()
