@@ -53,6 +53,30 @@ function confBg(c: number) {
       : "bg-destructive/10 text-destructive border-destructive/30";
 }
 
+// ─── Alert type ───────────────────────────────────────────────────────────────
+type AlertStatus = "active" | "acknowledged" | "resolved";
+type AlertRecord = {
+  id: string;            // unique — "scenario-fog", "custom-1234567890", "init-0" etc.
+  severity: string;
+  time: string;
+  title: string;
+  reason: string;
+  impact: string;
+  action: string;
+  status: AlertStatus;
+  source: "scenario" | "system";
+};
+
+// Convert initialAlerts (from demo.ts) into AlertRecord[]
+function toAlertRecords(raw: typeof initialAlerts): AlertRecord[] {
+  return raw.map((a, i) => ({
+    ...a,
+    id: `init-${i}`,
+    status: "active" as AlertStatus,
+    source: "system" as const,
+  }));
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [view, setView] = useState("Dashboard");
@@ -63,7 +87,7 @@ export default function Dashboard() {
   const [congestion, setCongestion] = useState(false);
   const [dark, setDark] = useState(true);
   const [query, setQuery] = useState("");
-  const [alerts, setAlerts] = useState(initialAlerts);
+  const [alerts, setAlerts] = useState<AlertRecord[]>(() => toAlertRecords(initialAlerts));
   const [activeScenarios, setActiveScenarios] = useState<string[]>([]);
 
   // ── Train list from API (GET /api/trains) — falls back to demo on error ──────
@@ -124,29 +148,71 @@ export default function Dashboard() {
     if (congestion) return;
     setCongestion(true);
     setAlerts((a) => [{
-      severity: "critical", time: "NOW", title: "Vadodara → Ratlam",
-      reason: "Congestion event — route_congestion_index spiked to 9.2",
-      impact: "+8 min", action: "Recalculate precedence plan",
+      id:       `congestion-${Date.now()}`,
+      severity: "critical",
+      time:     new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" }),
+      title:    "Vadodara → Ratlam",
+      reason:   "Congestion event — route_congestion_index spiked to 9.2",
+      impact:   "+8 min",
+      action:   "Recalculate precedence plan",
+      status:   "active" as AlertStatus,
+      source:   "system" as const,
     }, ...a]);
     toast.error("Critical congestion detected", {
       description: "Train 12951 AI ETA revised to 22:01. Network cascade risk active.",
     });
   }
 
-  function injectScenario(id: string) {
+  function injectScenario(id: string, payload?: {
+    title?: string; reason?: string; impact?: string; action?: string; severity?: string;
+  }) {
     if (activeScenarios.includes(id)) return;
-    const s = scenarios.find((x) => x.id === id)!;
+    const s = scenarios.find((x) => x.id === id);
     setActiveScenarios((prev) => [...prev, id]);
-    setAlerts((a) => [{
-      severity: s.severity, time: "NOW", title: s.label,
-      reason: s.description, impact: s.impact, action: "ETA recalculated",
-    }, ...a]);
-    toast.error(`Scenario injected: ${s.label}`, { description: `Expected impact: ${s.impact}` });
+    const newAlert: AlertRecord = {
+      id: `scenario-${id}`,
+      severity:  payload?.severity ?? s?.severity ?? "warning",
+      time:      new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" }),
+      title:     payload?.title  ?? s?.label      ?? id,
+      reason:    payload?.reason ?? s?.description ?? "Disruption event injected",
+      impact:    payload?.impact ?? s?.impact      ?? "Unknown impact",
+      action:    payload?.action ?? "ETA recalculated — monitor affected trains",
+      status:    "active",
+      source:    "scenario",
+    };
+    setAlerts((a) => [newAlert, ...a.filter((x) => x.id !== newAlert.id)]);
+    toast.error(`Scenario injected: ${newAlert.title}`, { description: `Expected impact: ${newAlert.impact}` });
+  }
+
+  function injectCustomAlert(payload: {
+    id: string; title: string; reason: string; impact: string; action: string; severity: string;
+  }) {
+    const newAlert: AlertRecord = {
+      ...payload,
+      time:   new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" }),
+      status: "active",
+      source: "scenario",
+    };
+    setAlerts((a) => [newAlert, ...a.filter((x) => x.id !== newAlert.id)]);
   }
 
   function clearScenarios() {
     setActiveScenarios([]);
-    toast.success("All scenarios cleared — restoring optimal schedule");
+    // Mark all scenario-sourced active alerts as resolved (keep in history)
+    setAlerts((a) => a.map((x) =>
+      x.source === "scenario" && x.status === "active"
+        ? { ...x, status: "resolved" as AlertStatus }
+        : x
+    ));
+    toast.success("All scenarios cleared — optimal schedule restored");
+  }
+
+  function acknowledgeAlert(id: string) {
+    setAlerts((a) => a.map((x) => x.id === id ? { ...x, status: "acknowledged" as AlertStatus } : x));
+  }
+
+  function resolveAlert(id: string) {
+    setAlerts((a) => a.map((x) => x.id === id ? { ...x, status: "resolved" as AlertStatus } : x));
   }
 
   return (
@@ -240,11 +306,11 @@ export default function Dashboard() {
           {view === "ETA Prediction"   && <PredictionView selected={liveSelected} setSelected={setSelected} allTrains={sourceTrains} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={liveEta} refreshEta={refreshEta} etaLoading={etaState.status === "loading"} />}
           {view === "Passenger Tracker"&& <PassengerTrackerView />}
           {view === "Station PIDS"     && <StationPIDSView />}
-          {view === "Scenario Sandbox" && <ScenarioSandboxView activeScenarios={activeScenarios} onInject={injectScenario} onClear={clearScenarios} alerts={alerts} />}
+          {view === "Scenario Sandbox" && <ScenarioSandboxView activeScenarios={activeScenarios} onInject={injectScenario} onInjectCustom={injectCustomAlert} onClear={clearScenarios} alerts={alerts} />}
           {view === "Network Monitor"  && <NetworkView congestion={congestion} />}
           {view === "Delay Analytics"  && <AnalyticsView />}
           {view === "Model Performance"&& <ModelView />}
-          {view === "Alerts"           && <AlertsView alerts={alerts} />}
+          {view === "Alerts"           && <AlertsView alerts={alerts} onAcknowledge={acknowledgeAlert} onResolve={resolveAlert} />}
           {view === "API / Integration"&& <ArchitectureView />}
 
           <footer className="mt-6 flex flex-col justify-between gap-2 border-t border-border py-5 text-[10px] uppercase tracking-wider text-muted-foreground sm:flex-row">
@@ -1484,23 +1550,149 @@ function ModelView() {
 }
 
 // ─── Alerts view ──────────────────────────────────────────────────────────────
-function AlertsView({ alerts }: { alerts: typeof initialAlerts }) {
-  return (
-    <Panel title="Real-Time Alert Centre" kicker={`${alerts.length} active operational alerts`}>
-      <div className="divide-y divide-border">
-        {alerts.map((a, i) => (
-          <div key={`${a.time}-${i}`} className="grid gap-4 p-4 sm:grid-cols-[80px_1fr_auto]">
-            <div><StatusDot status={a.severity} /><p className="mt-2 font-mono text-[10px] text-muted-foreground">{a.time}</p></div>
-            <div>
-              <p className="text-xs font-semibold">{a.title}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{a.reason}</p>
-              <p className="mt-2 text-[10px] uppercase text-live">Recommended · {a.action}</p>
-            </div>
-            <div className="font-mono text-sm text-warning">{a.impact}</div>
+function AlertsView({
+  alerts,
+  onAcknowledge,
+  onResolve,
+}: {
+  alerts: AlertRecord[];
+  onAcknowledge: (id: string) => void;
+  onResolve: (id: string) => void;
+}) {
+  const [tab, setTab] = useState<"active" | "history">("active");
+
+  const activeAlerts   = alerts.filter((a) => a.status === "active" || a.status === "acknowledged");
+  const resolvedAlerts = alerts.filter((a) => a.status === "resolved");
+
+  const severityColor = (s: string) => {
+    if (s === "critical")    return "bg-destructive";
+    if (s === "warning")     return "bg-warning";
+    if (s === "operational") return "bg-live";
+    return "bg-muted-foreground";
+  };
+
+  const severityBadge = (s: string) => {
+    if (s === "critical")    return "border-destructive/30 bg-destructive/10 text-destructive";
+    if (s === "warning")     return "border-warning/30 bg-warning/10 text-warning";
+    if (s === "operational") return "border-live/30 bg-live/10 text-live";
+    return "border-border bg-muted/40 text-muted-foreground";
+  };
+
+  function renderAlert(a: AlertRecord) {
+    const isScenario = a.source === "scenario";
+    return (
+      <div
+        key={a.id}
+        className={`p-4 transition-colors ${a.status === "acknowledged" ? "bg-muted/30 opacity-80" : ""} ${a.status === "resolved" ? "opacity-50" : ""}`}
+      >
+        <div className="flex items-start gap-3">
+          {/* severity dot + time */}
+          <div className="shrink-0 pt-0.5 text-center" style={{ minWidth: 56 }}>
+            <span className={`inline-block size-2.5 rounded-full ${severityColor(a.severity)}`} />
+            <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">{a.time}</p>
+            {isScenario && (
+              <p className="mt-0.5 text-[8px] uppercase tracking-wide text-primary/70">Scenario</p>
+            )}
           </div>
-        ))}
+
+          {/* content */}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-semibold">{a.title}</p>
+              <span className={`rounded border px-1.5 py-0.5 text-[8px] font-bold uppercase ${severityBadge(a.severity)}`}>
+                {a.severity}
+              </span>
+              {a.status === "acknowledged" && (
+                <span className="rounded border border-live/30 bg-live/10 px-1.5 py-0.5 text-[8px] font-bold uppercase text-live">Acknowledged</span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{a.reason}</p>
+            <p className="mt-1.5 text-[10px] uppercase tracking-wide text-live">
+              Recommended · {a.action}
+            </p>
+          </div>
+
+          {/* impact + actions */}
+          <div className="shrink-0 text-right">
+            <p className="font-mono text-sm font-bold text-warning">{a.impact}</p>
+            {a.status !== "resolved" && (
+              <div className="mt-2 flex flex-col gap-1">
+                {a.status === "active" && (
+                  <button
+                    onClick={() => onAcknowledge(a.id)}
+                    className="rounded border border-live/30 px-2 py-0.5 text-[9px] font-semibold text-live hover:bg-live/10"
+                  >
+                    Acknowledge
+                  </button>
+                )}
+                <button
+                  onClick={() => onResolve(a.id)}
+                  className="rounded border border-success/30 px-2 py-0.5 text-[9px] font-semibold text-success hover:bg-success/10"
+                >
+                  Resolve
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-    </Panel>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* header stats */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="border border-border bg-card p-4 text-center">
+          <p className="font-mono text-2xl font-bold text-destructive">{activeAlerts.filter(a => a.status === "active").length}</p>
+          <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">Active Alerts</p>
+        </div>
+        <div className="border border-border bg-card p-4 text-center">
+          <p className="font-mono text-2xl font-bold text-live">{activeAlerts.filter(a => a.status === "acknowledged").length}</p>
+          <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">Acknowledged</p>
+        </div>
+        <div className="border border-border bg-card p-4 text-center">
+          <p className="font-mono text-2xl font-bold text-success">{resolvedAlerts.length}</p>
+          <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">Resolved</p>
+        </div>
+      </div>
+
+      <Panel
+        title="Real-Time Alert Centre"
+        kicker={`${activeAlerts.length} active · ${resolvedAlerts.length} resolved`}
+      >
+        {/* tabs */}
+        <div className="flex border-b border-border">
+          {(["active", "history"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider transition-colors border-b-2 ${
+                tab === t
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t === "active" ? `Active (${activeAlerts.length})` : `History (${resolvedAlerts.length})`}
+            </button>
+          ))}
+        </div>
+
+        {/* list */}
+        <div className="divide-y divide-border">
+          {tab === "active" && (
+            activeAlerts.length === 0
+              ? <p className="px-4 py-8 text-center text-sm text-muted-foreground">No active alerts.</p>
+              : activeAlerts.map(renderAlert)
+          )}
+          {tab === "history" && (
+            resolvedAlerts.length === 0
+              ? <p className="px-4 py-8 text-center text-sm text-muted-foreground">No resolved alerts yet.</p>
+              : resolvedAlerts.map(renderAlert)
+          )}
+        </div>
+      </Panel>
+    </div>
   );
 }
 

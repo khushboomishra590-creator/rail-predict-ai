@@ -57,11 +57,17 @@ function addMinutes(time: string, mins: number): string {
 export function ScenarioSandboxView({
   activeScenarios,
   onInject,
+  onInjectCustom,
   onClear,
   alerts,
 }: {
   activeScenarios: string[];
-  onInject: (id: string) => void;
+  onInject: (id: string, payload?: {
+    title?: string; reason?: string; impact?: string; action?: string; severity?: string;
+  }) => void;
+  onInjectCustom: (payload: {
+    id: string; title: string; reason: string; impact: string; action: string; severity: string;
+  }) => void;
   onClear: () => void;
   alerts: readonly { severity: string; time: string; title: string; reason: string; impact: string; action: string }[];
 }) {
@@ -105,11 +111,21 @@ export function ScenarioSandboxView({
         impact_minutes: s.deltaMin,
       });
 
-      onInject(s.id);
-
-      // Build before/after result from real API response
+      // Build before/after result from real API response — declare first
       const trainResult = resp.results.find((r) => r.status === "recalculated")
         ?? resp.results[0];
+
+      onInject(s.id, {
+        title:    s.label,
+        reason:   trainResult
+          ? `${s.description} — Train ${trainResult.train_id} ETA shifted ${trainResult.eta_change_minutes != null ? `${trainResult.eta_change_minutes > 0 ? "+" : ""}${trainResult.eta_change_minutes.toFixed(1)} min` : s.impact}`
+          : s.description,
+        impact:   trainResult?.eta_change_minutes != null
+          ? `${trainResult.eta_change_minutes > 0 ? "+" : ""}${trainResult.eta_change_minutes.toFixed(1)} min`
+          : s.impact,
+        action:   "Review affected train precedence and notify downstream stations",
+        severity: s.severity,
+      });
 
       if (trainResult) {
         setResults((prev) => [
@@ -173,6 +189,11 @@ export function ScenarioSandboxView({
       const trainResult = resp.results.find((r) => r.status === "recalculated")
         ?? resp.results[0];
 
+      const etaChangeStr = trainResult?.eta_change_minutes != null
+        ? `${trainResult.eta_change_minutes > 0 ? "+" : ""}${trainResult.eta_change_minutes.toFixed(1)} min`
+        : `+${mins} min`;
+      const trainLabel = trainResult ? `Train ${trainResult.train_id} ETA shifted ${etaChangeStr}` : `Expected delay +${mins} min`;
+
       if (trainResult) {
         setResults((prev) => [{
           scenarioId:   `custom-${Date.now()}`,
@@ -183,9 +204,7 @@ export function ScenarioSandboxView({
           beforeDelay:  0,
           afterDelay:   trainResult.predicted_delay_minutes ?? mins,
           delta:        Math.abs(trainResult.eta_change_minutes ?? mins),
-          impact:       trainResult.eta_change_minutes != null
-            ? `${trainResult.eta_change_minutes > 0 ? "+" : ""}${trainResult.eta_change_minutes.toFixed(1)} min`
-            : `+${mins} min`,
+          impact:       etaChangeStr,
           afterEtaLower: fmtEtaTime(trainResult.after_eta_lower),
           afterEtaUpper: fmtEtaTime(trainResult.after_eta_upper),
           uncertainty:  trainResult.uncertainty_minutes != null
@@ -199,9 +218,19 @@ export function ScenarioSandboxView({
         section:  customSection,
         type:     customType,
         severity: customSeverity === "High Severity" ? "critical" : "warning",
-        impact:   `+${mins} min`,
+        impact:   etaChangeStr,
         status:   "active",
       }, ...prev]);
+
+      // Push to Alert Centre
+      onInjectCustom({
+        id:       `custom-${Date.now()}`,
+        title:    customDesc,
+        reason:   `${customType} on ${customSection} — ${trainLabel}`,
+        impact:   etaChangeStr,
+        action:   "Monitor section — notify affected trains and downstream stations",
+        severity: customSeverity === "High Severity" ? "critical" : customSeverity === "Medium Severity" ? "warning" : "operational",
+      });
 
       setCustomDesc("");
     } catch (e) {
