@@ -1,0 +1,25 @@
+services:
+  # ── FastAPI backend ──────────────────────────────────────────────────────────
+  - type: web
+    name: railpredict-api
+    runtime: python
+    # rootDir is NOT set — we run from repo root so `backend.main` resolves correctly
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: railpredict-db
+          property: connectionString
+      - key: DEBUG
+        value: "false"
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+
+databases:
+  # ── PostgreSQL managed by Render ─────────────────────────────────────────────
+  - name: railpredict-db
+    databaseName: railpredict_db
+    user: railpredict
+    plan: free
