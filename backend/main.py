@@ -78,6 +78,51 @@ app.include_router(disruptions.router)
 
 
 # ---------------------------------------------------------------------------
+# Startup — run Alembic migrations + idempotent seed on every boot.
+# This replaces the Render "Pre-Deploy Command" (paid feature).
+# Both operations are fully idempotent:
+#   - alembic upgrade head   → no-op if schema is current
+#   - seed()                 → skips existing records by unique key
+# ---------------------------------------------------------------------------
+@app.on_event("startup")
+def run_migrations_and_seed() -> None:
+    import logging
+    log = logging.getLogger("startup")
+
+    # ── 1. Alembic migrations ─────────────────────────────────────────────
+    try:
+        from pathlib import Path
+        from alembic.config import Config
+        from alembic import command as alembic_command
+
+        alembic_cfg = Config(str(Path(__file__).resolve().parent / "alembic.ini"))
+        # Override script_location so it resolves correctly regardless of cwd
+        alembic_cfg.set_main_option(
+            "script_location",
+            str(Path(__file__).resolve().parent / "alembic"),
+        )
+        alembic_command.upgrade(alembic_cfg, "head")
+        log.info("Alembic upgrade head: complete")
+    except Exception as exc:
+        log.error(f"Alembic migration failed: {exc}")
+
+    # ── 2. Seed reference data ────────────────────────────────────────────
+    try:
+        import sys
+        from pathlib import Path as _Path
+        # Ensure repo root is on sys.path (needed when cwd is backend/)
+        _root = str(_Path(__file__).resolve().parent.parent)
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
+
+        from backend.seed_trains import seed
+        seed()
+        log.info("Seed: complete")
+    except Exception as exc:
+        log.error(f"Seed failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
 @app.get("/health", tags=["meta"])
