@@ -7,6 +7,9 @@ services:
     buildCommand: pip install -r backend/requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
+    preDeployCommand: >-
+      python -m alembic -c backend/alembic.ini upgrade head &&
+      python backend/seed_trains.py
     envVars:
       - key: DATABASE_URL
         fromDatabase:
