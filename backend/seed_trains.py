@@ -1,7 +1,8 @@
 """
 seed_trains.py
 ==============
-Idempotent seed — inserts the 8 trains from the M2 CSV into PostgreSQL.
+Idempotent seed — inserts the 8 trains from the M2 CSV into PostgreSQL,
+plus the TrainRun + Route stops required for train 12951 dynamic ETA.
 
 Run from the railway/ root:
     python backend/seed_trains.py
@@ -15,17 +16,18 @@ Train IDs sourced from:
     backend/ETA_dynamicengine/data/SIH26028_demo_railway_eta_dataset.csv
 
 Dynamic ETA support:
-  12951  → FULL  (M4 PostgreSQL + M3 XGBoost, route seeded)
+  12951  → FULL  (M4 PostgreSQL + M3 XGBoost, route + TrainRun seeded)
   others → LIST-ONLY  (appear in train list; /eta returns 404 — no TrainRun)
 """
 
 import sys
+from datetime import date, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.database.session import SessionLocal
-from backend.models.models import Station, Train, Zone
+from backend.models.models import Route, Station, Train, TrainRun, Zone
 
 # ── Station master — all stations appearing in the CSV ────────────────────────
 # code, name, zone_code, lat, lon
@@ -158,7 +160,88 @@ def seed():
 
         db.commit()
 
-        # ── 4. Summary ────────────────────────────────────────────────────────
+        # ── 4. Route stops for train 12951 (needed by M3 ETA engine) ─────────
+        # m3_adapter._build_eta_input() requires Route rows with
+        # scheduled_arrival (time) and distance_from_origin_km for each stop.
+        # These are the actual timetable stops for the Mumbai Rajdhani (12951).
+        print("\n[4] Route stops for train 12951")
+        train_12951 = db.query(Train).filter_by(number="12951").first()
+        if train_12951:
+            # stop_sequence, station_code, scheduled_arrival(HH,MM),
+            # scheduled_departure(HH,MM), distance_km, day_offset
+            ROUTE_12951 = [
+                (1,  "BCT",  16, 35, 16, 40,    0.0, 0),
+                (2,  "ST",   19, 10, 19, 15,  263.0, 0),
+                (3,  "BRC",  20, 45, 20, 50,  391.0, 0),
+                (4,  "NDLS",  8, 35,  8, 35, 1384.0, 1),
+            ]
+            for seq, code, ah, am, dh, dm, dist, day_off in ROUTE_12951:
+                st = db.query(Station).filter_by(code=code).first()
+                if st is None:
+                    print(f"  WARN  station {code} not found — skip route stop")
+                    continue
+                existing_stop = (
+                    db.query(Route)
+                    .filter_by(train_id=train_12951.id, station_id=st.id)
+                    .first()
+                )
+                if existing_stop:
+                    print(f"  SKIP  route stop {seq} {code}")
+                else:
+                    r = Route(
+                        train_id=train_12951.id,
+                        station_id=st.id,
+                        stop_sequence=seq,
+                        scheduled_arrival=time(ah, am),
+                        scheduled_departure=time(dh, dm),
+                        distance_from_origin_km=dist,
+                        day_offset=day_off,
+                    )
+                    db.add(r)
+                    print(f"  ADD   route stop {seq} {code}  arr={ah:02d}:{am:02d}")
+            db.commit()
+        else:
+            print("  WARN  train 12951 not found — skipping route seed")
+
+        # ── 5. TrainRun for train 12951 (needed by GET /api/trains/12951/eta) ─
+        # get_single_eta() filters TrainRun.run_date == date.today().
+        # We upsert today's run every deploy so it's always current.
+        print("\n[5] TrainRun for train 12951")
+        if train_12951:
+            brc = db.query(Station).filter_by(code="BRC").first()   # Vadodara Jn
+            ndls = db.query(Station).filter_by(code="NDLS").first() # New Delhi
+            today = date.today()
+            existing_run = (
+                db.query(TrainRun)
+                .filter_by(train_id=train_12951.id, run_date=today)
+                .first()
+            )
+            if existing_run:
+                # Update station/speed/delay so it's always fresh
+                existing_run.current_station_id = brc.id if brc else existing_run.current_station_id
+                existing_run.next_station_id    = ndls.id if ndls else existing_run.next_station_id
+                existing_run.current_speed_kmh  = 104
+                existing_run.current_delay_min  = 18
+                existing_run.status             = "running"
+                db.commit()
+                print(f"  UPDATE TrainRun id={existing_run.id} run_date={today}")
+            else:
+                run = TrainRun(
+                    train_id=train_12951.id,
+                    run_date=today,
+                    status="running",
+                    current_station_id=brc.id if brc else None,
+                    next_station_id=ndls.id if ndls else None,
+                    current_speed_kmh=104,
+                    current_delay_min=18,
+                )
+                db.add(run)
+                db.commit()
+                print(f"  ADD   TrainRun run_date={today}  id={run.id}")
+        else:
+            print("  WARN  train 12951 not found — skipping TrainRun seed")
+
+        # ── 6. Summary ────────────────────────────────────────────────────────
         total = db.query(Train).count()
         print(f"\n{SEP}")
         print(f"  Trains inserted : {inserted}")
@@ -167,7 +250,7 @@ def seed():
         print(SEP)
 
         print("\n  DYNAMIC ETA SUPPORT:")
-        print("  12951 → FULL  (M4 PostgreSQL + M3 XGBoost + route seeded)")
+        print("  12951 → FULL  (M4 PostgreSQL + M3 XGBoost + route + TrainRun seeded)")
         for number, _, short_name, *_ in TRAIN_DEFS:
             if number != "12951":
                 print(f"  {number} → LIST-ONLY  (in train list; no TrainRun/route seeded)")
