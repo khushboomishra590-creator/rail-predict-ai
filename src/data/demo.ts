@@ -149,11 +149,11 @@ export const networkSections = [
 
 // ─── PIDS board ───────────────────────────────────────────────────────────────
 export const pidsRows = [
-  { number: "12951", name: "Mumbai Rajdhani Express",      nameHi: "मुंबई राजधानी एक्सप्रेस",  route: "BCT → NDLS", scheduled: "21:42", aiEta: "21:53", confidence: 94, platform: "4", status: "minor"    as const, delay: 18 },
-  { number: "12932", name: "Ahmedabad Double Decker",      nameHi: "अहमदाबाद डबल डेकर",        route: "ADI → BCT",  scheduled: "22:12", aiEta: "22:18", confidence: 96, platform: "2", status: "on-time"  as const, delay: 0  },
-  { number: "12009", name: "Shatabdi Express",             nameHi: "शताब्दी एक्सप्रेस",        route: "BCT → ADI",  scheduled: "12:45", aiEta: "12:43", confidence: 97, platform: "1", status: "on-time"  as const, delay: 0  },
-  { number: "12952", name: "New Delhi Rajdhani Express",   nameHi: "नई दिल्ली राजधानी एक्सप्रेस",route:"NDLS → BCT", scheduled: "08:35", aiEta: "09:09", confidence: 88, platform: "3", status: "significant" as const, delay: 34 },
-  { number: "19037", name: "Avadh Express",                nameHi: "अवध एक्सप्रेस",             route: "BDTS → BJU", scheduled: "02:18", aiEta: "03:27", confidence: 82, platform: "5", status: "critical" as const, delay: 76 },
+  { number: "12951", name: "Mumbai Rajdhani Express",      nameHi: "मुंबई राजधानी एक्सप्रेस",  route: "BCT → NDLS", scheduled: "21:42", aiEta: "21:53", confidence: 94, platform: "4", status: "minor"       as const, delay: 18, stations: ["BCT","ST","BRC","RTM","KOTA","MTJ","NDLS"] },
+  { number: "12932", name: "Ahmedabad Double Decker",      nameHi: "अहमदाबाद डबल डेकर",        route: "ADI → BCT",  scheduled: "22:12", aiEta: "22:18", confidence: 96, platform: "2", status: "on-time"     as const, delay: 0,  stations: ["ADI","ANND","BH","ST","BCT"] },
+  { number: "12009", name: "Shatabdi Express",             nameHi: "शताब्दी एक्सप्रेस",        route: "BCT → ADI",  scheduled: "12:45", aiEta: "12:43", confidence: 97, platform: "1", status: "on-time"     as const, delay: 0,  stations: ["BCT","ST","BH","BRC","ADI"] },
+  { number: "12952", name: "New Delhi Rajdhani Express",   nameHi: "नई दिल्ली राजधानी एक्सप्रेस",route:"NDLS → BCT", scheduled: "08:35", aiEta: "09:09", confidence: 88, platform: "3", status: "significant" as const, delay: 34, stations: ["NDLS","MTJ","KOTA","RTM","BRC","ST","BCT"] },
+  { number: "19037", name: "Avadh Express",                nameHi: "अवध एक्सप्रेस",             route: "BDTS → BJU", scheduled: "02:18", aiEta: "03:27", confidence: 82, platform: "5", status: "critical"    as const, delay: 76, stations: ["BDTS","BRC","RTM","KOTA","AGC","BJU"] },
 ];
 
 // ─── Scenario disruptions ─────────────────────────────────────────────────────

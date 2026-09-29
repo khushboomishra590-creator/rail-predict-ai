@@ -1887,6 +1887,15 @@ function StationPIDSView() {
   const [chimeOn, setChimeOn] = useState(true);
   const stations_list = ["VADODARA (BRC)", "NEW DELHI (NDLS)", "MUMBAI CENTRAL (BCT)", "SURAT (ST)", "KOTA (KOTA)", "RATLAM (RTM)"];
 
+  // Extract the station code from the display name, e.g. "KOTA (KOTA)" → "KOTA"
+  const selectedCode = station.match(/\(([^)]+)\)/)?.[1] ?? "";
+
+  // Filter pidsRows to only trains that call at the selected station
+  const filteredRows = pidsRows.filter((r) => {
+    const stops: string[] | undefined = (r as { stations?: string[] }).stations;
+    return !stops || stops.includes(selectedCode);
+  });
+
   function announceText(r: typeof pidsRows[0]) {
     const statusPart = r.delay > 0 ? `approximately ${r.delay} minutes behind schedule` : "on time";
     return `Attention passengers. Train number ${r.number}, ${r.name}, arriving at Platform ${r.platform}. Expected arrival ${r.aiEta}. Train is running ${statusPart}.`;
@@ -1940,7 +1949,13 @@ function StationPIDSView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {pidsRows.map((r) => {
+              {filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    No trains scheduled at {station}.
+                  </td>
+                </tr>
+              ) : filteredRows.map((r) => {
                 const statusColor = r.status === "on-time" ? "bg-success/10 text-success border-success/30"
                   : r.status === "minor" ? "bg-warning/10 text-warning border-warning/30"
                   : r.status === "significant" ? "bg-orange-500/10 text-orange-400 border-orange-500/30"
