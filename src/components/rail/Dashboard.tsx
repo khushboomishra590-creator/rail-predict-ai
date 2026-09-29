@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useTrainEta } from "@/hooks/use-train-eta";
 import { useTrainList } from "@/hooks/use-train-list";
 import { useRouteEta } from "@/hooks/use-route-eta";
@@ -929,18 +929,57 @@ function LiveTrainsView({ allTrains, onSelect }: {
     setConfidence("All Confidence");
   }
 
-  // ── Reusable select ────────────────────────────────────────────────────────
+  // ── Reusable custom dropdown — stays open until user clicks outside ──────
   function FilterSelect({ value, onChange, options }: {
     value: string; onChange: (v: string) => void; options: string[];
   }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+    const isDefault = value === options[0];
+
+    // Close when clicking outside
+    useEffect(() => {
+      function handleClick(e: MouseEvent) {
+        if (ref.current && !ref.current.contains(e.target as Node)) {
+          setOpen(false);
+        }
+      }
+      if (open) document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }, [open]);
+
     return (
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`border px-2 py-1 text-[11px] font-semibold outline-none focus:border-primary bg-background cursor-pointer ${value === options[0] ? "border-input text-muted-foreground" : "border-primary text-primary"}`}
-      >
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
+      <div ref={ref} className="relative">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className={`flex items-center gap-1.5 border px-2.5 py-1.5 text-[11px] font-semibold outline-none transition-colors ${
+            isDefault
+              ? "border-input bg-background text-muted-foreground hover:border-primary/50"
+              : "border-primary bg-primary/5 text-primary"
+          }`}
+        >
+          {value}
+          <ChevronDown className={`size-3 transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
+
+        {open && (
+          <div className="absolute left-0 top-full z-50 mt-1 min-w-[140px] border border-border bg-background shadow-lg">
+            {options.map((o) => (
+              <button
+                key={o}
+                onClick={() => { onChange(o); setOpen(false); }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] hover:bg-accent ${
+                  value === o ? "font-semibold text-primary" : "text-foreground"
+                }`}
+              >
+                {value === o && <span className="size-1.5 rounded-full bg-primary shrink-0" />}
+                {value !== o && <span className="size-1.5 shrink-0" />}
+                {o}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     );
   }
 
