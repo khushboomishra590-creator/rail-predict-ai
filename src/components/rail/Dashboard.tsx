@@ -167,7 +167,7 @@ export default function Dashboard() {
                 RailPredict <span className="text-primary">AI</span>
               </b>
               <small className="hidden truncate text-[9px] uppercase tracking-[.16em] text-muted-foreground sm:block">
-                Dynamic ETA Intelligence · SIH-26028
+                Dynamic ETA Intelligence
               </small>
             </span>
           </button>
@@ -248,7 +248,7 @@ export default function Dashboard() {
           {view === "API / Integration"&& <ArchitectureView />}
 
           <footer className="mt-6 flex flex-col justify-between gap-2 border-t border-border py-5 text-[10px] uppercase tracking-wider text-muted-foreground sm:flex-row">
-            <span>RailPredict AI · SIH-26028</span>
+            <span>RailPredict AI</span>
             <span>Network-aware XGBoost · MAE 4.34 min · 29 features · 20K training rows</span>
           </footer>
         </div>
