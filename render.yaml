@@ -3,9 +3,9 @@ services:
   - type: web
     name: railpredict-api
     runtime: python
-    # No rootDir — run from repo root so backend.xxx imports resolve correctly
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -16,6 +16,9 @@ services:
         value: "false"
       - key: PYTHON_VERSION
         value: "3.12.0"
+      # Add repo root to Python path so "from backend.xxx import" still resolves
+      - key: PYTHONPATH
+        value: /opt/render/project/src
 
 databases:
   # ── PostgreSQL managed by Render ─────────────────────────────────────────────
