@@ -237,7 +237,7 @@ export default function Dashboard() {
 
           {view === "Dashboard"        && <DashboardView selected={liveSelected} setSelected={setSelected} tick={tick} congestion={congestion} triggerCongestion={triggerCongestion} query={query} setQuery={setQuery} filtered={filtered} liveEta={liveEta} refreshEta={refreshEta} allTrains={sourceTrains} etaLoading={etaState.status === "loading"} />}
           {view === "Live Trains"      && <LiveTrainsView allTrains={sourceTrains} onSelect={(t) => { setSelected(t); setView("Dashboard"); }} />}
-          {view === "ETA Prediction"   && <PredictionView selected={liveSelected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={liveEta} refreshEta={refreshEta} etaLoading={etaState.status === "loading"} />}
+          {view === "ETA Prediction"   && <PredictionView selected={liveSelected} setSelected={setSelected} allTrains={sourceTrains} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={liveEta} refreshEta={refreshEta} etaLoading={etaState.status === "loading"} />}
           {view === "Passenger Tracker"&& <PassengerTrackerView />}
           {view === "Station PIDS"     && <StationPIDSView />}
           {view === "Scenario Sandbox" && <ScenarioSandboxView activeScenarios={activeScenarios} onInject={injectScenario} onClear={clearScenarios} alerts={alerts} />}
@@ -1035,14 +1035,78 @@ function LiveTrainsView({ allTrains, onSelect }: {
 }
 
 // ─── ETA Prediction view ──────────────────────────────────────────────────────
-function PredictionView({ selected, congestion, triggerCongestion, liveEta, refreshEta, etaLoading }: {
-  selected: Train; congestion: boolean; triggerCongestion: () => void;
+function PredictionView({ selected, setSelected, allTrains, congestion, triggerCongestion, liveEta, refreshEta, etaLoading }: {
+  selected: Train; setSelected: (t: Train) => void; allTrains: Train[];
+  congestion: boolean; triggerCongestion: () => void;
   liveEta: EtaResponse | null; refreshEta: () => void; etaLoading: boolean;
 }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+
   const eta12951 = selected.number === "12951" ? liveEta : null;
   const loading12951 = selected.number === "12951" ? etaLoading : false;
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    return allTrains
+      .filter((t) =>
+        `${t.number} ${t.name} ${t.shortName} ${t.current} ${t.destination}`
+          .toLowerCase()
+          .includes(q)
+      )
+      .slice(0, 6);
+  }, [searchQuery, allTrains]);
+
+  function pickTrain(t: Train) {
+    setSelected(t);
+    setSearchQuery("");
+    setShowDropdown(false);
+  }
+
   return (
     <div className="space-y-4">
+
+      {/* ── Train search ── */}
+      <div className="relative">
+        <div className="flex items-center gap-2 border border-input bg-background px-3">
+          <Search className="size-4 shrink-0 text-muted-foreground" />
+          <input
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setShowDropdown(true); }}
+            onFocus={() => setShowDropdown(true)}
+            onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+            placeholder="Search train number or name to view its ETA prediction…"
+            className="h-10 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+          />
+          {searchQuery && (
+            <button onClick={() => { setSearchQuery(""); setShowDropdown(false); }} className="text-muted-foreground hover:text-foreground">✕</button>
+          )}
+        </div>
+        {showDropdown && searchResults.length > 0 && (
+          <div className="absolute z-50 w-full border border-border bg-card shadow-lg">
+            {searchResults.map((t) => (
+              <button
+                key={t.number}
+                onMouseDown={() => pickTrain(t)}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold">{t.number} · {t.shortName}</p>
+                  <p className="text-[10px] text-muted-foreground">{t.current} → {t.destination}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-mono text-xs text-live">{t.aiEta}</p>
+                  <p className={`text-[9px] ${t.delay === 0 ? "text-success" : "text-warning"}`}>
+                    {t.delay === 0 ? "On time" : `+${t.delay} min`}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="grid gap-4 xl:grid-cols-[1.3fr_.7fr]">
         <PredictionPanel selected={selected} congestion={congestion} liveEta={eta12951} etaLoading={loading12951} />
         <TrainDetail train={selected} congestion={congestion} triggerCongestion={triggerCongestion} liveEta={eta12951} etaLoading={loading12951} />
