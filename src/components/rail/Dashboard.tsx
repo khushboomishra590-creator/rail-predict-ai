@@ -93,6 +93,17 @@ export default function Dashboard() {
     return () => window.clearInterval(id);
   }, [running, simMode, speed]);
 
+  // ── Real-time IST clock ──────────────────────────────────────────────────────
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setClock(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const istTime = clock.toLocaleTimeString("en-IN", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false, timeZone: "Asia/Kolkata",
+  });
+
   const liveSelected = useMemo(() => ({
     ...selected,
     speed: Math.max(48, selected.speed + ((tick % 5) - 2)),
@@ -162,11 +173,9 @@ export default function Dashboard() {
           </button>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            {/* live clock */}
+            {/* live clock — real IST */}
             <span className="hidden font-mono text-[11px] text-foreground lg:block">
-              {String(11 + Math.floor((tick * 3) / 3600) % 12).padStart(2, "0")}:
-              {String((14 + Math.floor((tick * 3) / 60)) % 60).padStart(2, "0")}:
-              {String((tick * 3) % 60).padStart(2, "0")} IST
+              {istTime} IST
             </span>
             <span className="hidden items-center gap-1.5 text-[10px] font-bold text-warning md:flex rounded border border-warning/40 bg-warning/10 px-2 py-0.5">
               <i className="size-2 animate-pulse rounded-full bg-warning" /> DEMO — Simulated RTIS
