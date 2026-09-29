@@ -137,24 +137,148 @@ export const api = {
     }
     return res.json() as Promise<MovementUpdateResponse>;
   },
+
+  /** POST /api/disruptions — inject disruption, recalculate ETAs via M3 */
+  injectDisruption: async (payload: DisruptionRequest): Promise<DisruptionResponse> => {
+    const res = await fetch(`${BASE}/api/disruptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`POST /api/disruptions → HTTP ${res.status}`);
+    return res.json() as Promise<DisruptionResponse>;
+  },
+
+  /** POST /api/disruptions/clear — deactivate all disruptions, restore baseline ETAs */
+  clearDisruptions: async (): Promise<ClearDisruptionsResponse> => {
+    const res = await fetch(`${BASE}/api/disruptions/clear`, { method: "POST" });
+    if (!res.ok) throw new Error(`POST /api/disruptions/clear → HTTP ${res.status}`);
+    return res.json() as Promise<ClearDisruptionsResponse>;
+  },
+
+  /** GET /api/disruptions — list currently active disruptions */
+  getActiveDisruptions: () =>
+    apiFetch<ActiveDisruptionsResponse>("/api/disruptions"),
 };
 
-// ── Display helpers ───────────────────────────────────────────────────────────
+// ── Disruptions ───────────────────────────────────────────────────────────────
+
+export type DisruptionType =
+  | "dense_fog"
+  | "freight_conflict"
+  | "signal_failure"
+  | "emergency_tsr"
+  | "custom";
+
+export type DisruptionSeverity = "high" | "medium" | "low";
+
+export interface DisruptionRequest {
+  description: string;
+  type: DisruptionType;
+  severity?: DisruptionSeverity;
+  section?: string | null;
+  impact_minutes?: number;
+}
+
+export interface DisruptionInfo {
+  id: number;
+  type: string;
+  description: string;
+  severity: string;
+  section: string | null;
+  impact_minutes: number;
+  is_active: boolean;
+  created_at: string;
+  cleared_at: string | null;
+}
+
+export interface TrainDisruptionResult {
+  train_id: string;
+  status: string;
+  before_eta: string | null;
+  after_eta: string | null;
+  before_eta_lower: string | null;
+  before_eta_upper: string | null;
+  after_eta_lower: string | null;
+  after_eta_upper: string | null;
+  eta_change_minutes: number | null;
+  predicted_delay_minutes: number | null;
+  uncertainty_minutes: number | null;
+  reason: string | null;
+}
+
+export interface DisruptionResponse {
+  disruption: DisruptionInfo;
+  affected_trains: string[];
+  results: TrainDisruptionResult[];
+}
+
+export interface ClearDisruptionsResponse {
+  cleared_count: number;
+  results: TrainDisruptionResult[];
+}
+
+export interface ActiveDisruptionsResponse {
+  disruptions: DisruptionInfo[];
+  total: number;
+}
 
 /**
  * Convert an ISO-8601 datetime string from the API to "HH:MM" (IST display).
- * Returns "—" if the input is empty or invalid.
+ *
+ * Returns:
+ *   "Not available"  — if iso is null / undefined / empty string
+ *   "HH:MM"          — if iso is a valid datetime
+ *   "Not available"  — if the string cannot be parsed
+ *
+ * NEVER returns "--:--", "undefined", "null", or "Invalid Date".
  */
 export function fmtEtaTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso || iso.trim() === "") return "Not available";
+  // If it already looks like a formatted HH:MM time (not an ISO string), return as-is
+  if (/^\d{1,2}:\d{2}$/.test(iso.trim())) return iso.trim();
   try {
-    return new Date(iso).toLocaleTimeString("en-IN", {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "Not available";
+    return d.toLocaleTimeString("en-IN", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
       timeZone: "Asia/Kolkata",
     });
   } catch {
-    return iso;
+    return "Not available";
   }
+}
+
+/**
+ * Format an ETA range from two ISO-8601 strings.
+ *
+ * Returns:
+ *   "HH:MM – HH:MM"  — when both values are valid
+ *   "Not available"  — when either value is missing / invalid
+ */
+export function fmtEtaRange(
+  lower: string | null | undefined,
+  upper: string | null | undefined,
+): string {
+  const lo = fmtEtaTime(lower);
+  const hi = fmtEtaTime(upper);
+  if (lo === "Not available" || hi === "Not available") return "Not available";
+  return `${lo} – ${hi}`;
+}
+
+/**
+ * Return the correct ETA display string based on API loading state.
+ *
+ *   loading = true  → "Calculating..."
+ *   iso valid       → "HH:MM"
+ *   otherwise       → "Not available"
+ */
+export function fmtEtaOrState(
+  iso: string | null | undefined,
+  loading: boolean,
+): string {
+  if (loading) return "Calculating...";
+  return fmtEtaTime(iso);
 }

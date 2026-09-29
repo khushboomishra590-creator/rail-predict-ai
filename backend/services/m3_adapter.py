@@ -237,6 +237,65 @@ def get_eta_from_engine(run: TrainRun, db: Session) -> ETAResponse | None:
     return _get_eta_service().calculate_eta(eta_input)
 
 
+def get_eta_from_engine_with_overrides(
+    run: TrainRun,
+    db: Session,
+    overrides: dict,
+) -> ETAResponse | None:
+    """
+    Build ETAInput from DB, then apply disruption-driven feature overrides
+    to the TrainState / NetworkState before calling M3.
+
+    Only keys that exist in the 15-feature MLInput are honoured.
+    Overrides are applied as a shallow patch — the existing ETAInput
+    structure is preserved; only the specified scalar fields are replaced.
+
+    Supported override keys (subset of FEATURES):
+        current_delay            (float, minutes)
+        current_speed            (float, km/h)
+        preceding_train_delay    (float, minutes)
+        headway                  (float, minutes)
+
+    Returns ETAResponse (same as get_eta_from_engine) or None.
+    """
+    db.refresh(run)
+    eta_input = _build_eta_input(run, db)
+    if eta_input is None:
+        return None
+
+    # Apply overrides to the mutable copies
+    train = eta_input.train
+    network = eta_input.network
+
+    if "current_delay" in overrides:
+        train = TrainState(**{
+            **train.model_dump(),
+            "current_delay": float(overrides["current_delay"]),
+        })
+
+    if "current_speed" in overrides:
+        train = TrainState(**{
+            **train.model_dump(),
+            "current_speed": float(overrides["current_speed"]),
+        })
+
+    if "preceding_train_delay" in overrides or "headway" in overrides:
+        net_data = network.model_dump()
+        if "preceding_train_delay" in overrides:
+            net_data["preceding_train_delay"] = float(overrides["preceding_train_delay"])
+        if "headway" in overrides:
+            net_data["headway"] = float(overrides["headway"])
+        network = NetworkState(**net_data)
+
+    patched_input = ETAInput(
+        train=train,
+        timetable=eta_input.timetable,
+        historical=eta_input.historical,
+        network=network,
+    )
+    return _get_eta_service().calculate_eta(patched_input)
+
+
 def get_route_eta_from_engine(run: TrainRun, db: Session) -> RouteETAResponse | None:
     """
     Build Route (list of RouteInput) from remaining stops →

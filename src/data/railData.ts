@@ -129,6 +129,48 @@ export const allJourneyStops: Record<string, JourneyStop[]> = {
     { station: "Agra Cantt",      code: "AGC",  km: 1092, sch: "04:20", ai: "05:36", lower: "05:28",upper: "05:44",status: "upcoming", delay: 76, platform: "1" },
     { station: "Barauni Jn",      code: "BJU",  km: 1884, sch: "02:18", ai: "03:34", lower: "03:27",upper: "03:41",status: "upcoming", delay: 76, platform: "4" },
   ],
+
+  // 12010 — Ahmedabad–Mumbai Central Shatabdi (en route, currently near Vadodara)
+  "12010": [
+    { station: "Ahmedabad Jn",   code: "ADI",  km: 0,    sch: "06:25", ai: null,    lower: null,   upper: null,   status: "departed", delay: 0,  platform: "4" },
+    { station: "Anand Jn",       code: "ANND", km: 46,   sch: "07:00", ai: null,    lower: null,   upper: null,   status: "departed", delay: 0,  platform: "1" },
+    { station: "Vadodara Jn",    code: "BRC",  km: 100,  sch: "07:48", ai: "07:51", lower: "07:49",upper: "07:53",status: "current",  delay: 3,  platform: "3" },
+    { station: "Bharuch Jn",     code: "BH",   km: 173,  sch: "08:30", ai: "08:34", lower: "08:32",upper: "08:36",status: "upcoming", delay: 4,  platform: "1" },
+    { station: "Surat",          code: "ST",   km: 246,  sch: "09:18", ai: "09:22", lower: "09:20",upper: "09:24",status: "upcoming", delay: 4,  platform: "2" },
+    { station: "Mumbai Central", code: "BCT",  km: 493,  sch: "13:00", ai: "13:04", lower: "13:02",upper: "13:06",status: "upcoming", delay: 4,  platform: "5" },
+  ],
+
+  // 12931 — Mumbai Central–Delhi Hazrat Nizamuddin Double Decker (en route)
+  "12931": [
+    { station: "Mumbai Central", code: "BCT",  km: 0,    sch: "23:55", ai: null,    lower: null,   upper: null,   status: "departed", delay: 0,  platform: "6" },
+    { station: "Surat",          code: "ST",   km: 263,  sch: "03:20", ai: null,    lower: null,   upper: null,   status: "departed", delay: 0,  platform: "3" },
+    { station: "Vadodara Jn",    code: "BRC",  km: 391,  sch: "04:58", ai: "05:07", lower: "05:04",upper: "05:10",status: "current",  delay: 9,  platform: "2" },
+    { station: "Ratlam Jn",      code: "RTM",  km: 614,  sch: "07:45", ai: "07:54", lower: "07:51",upper: "07:57",status: "upcoming", delay: 9,  platform: "4" },
+    { station: "Kota Jn",        code: "KOTA", km: 846,  sch: "10:30", ai: "10:39", lower: "10:36",upper: "10:42",status: "upcoming", delay: 9,  platform: "1" },
+    { station: "Mathura Jn",     code: "MTJ",  km: 1177, sch: "14:05", ai: "14:14", lower: "14:11",upper: "14:17",status: "upcoming", delay: 9,  platform: "3" },
+    { station: "Hazrat Nizamuddin", code: "NZM", km: 1384, sch: "16:35", ai: "16:44", lower: "16:41",upper: "16:47",status: "upcoming", delay: 9,  platform: "2" },
+  ],
+
+  // 22953 — Mumbai Central–Gandhinagar Capital SF Express (en route)
+  "22953": [
+    { station: "Mumbai Central", code: "BCT",  km: 0,    sch: "08:10", ai: null,    lower: null,   upper: null,   status: "departed", delay: 0,  platform: "2" },
+    { station: "Surat",          code: "ST",   km: 263,  sch: "11:25", ai: null,    lower: null,   upper: null,   status: "departed", delay: 0,  platform: "4" },
+    { station: "Bharuch Jn",     code: "BH",   km: 336,  sch: "12:18", ai: "12:24", lower: "12:22",upper: "12:26",status: "current",  delay: 6,  platform: "1" },
+    { station: "Vadodara Jn",    code: "BRC",  km: 391,  sch: "13:05", ai: "13:11", lower: "13:09",upper: "13:13",status: "upcoming", delay: 6,  platform: "5" },
+    { station: "Anand Jn",       code: "ANND", km: 437,  sch: "13:48", ai: "13:54", lower: "13:52",upper: "13:56",status: "upcoming", delay: 6,  platform: "2" },
+    { station: "Gandhinagar Capital", code: "GNC", km: 494, sch: "14:45", ai: "14:51", lower: "14:49",upper: "14:53",status: "upcoming", delay: 6,  platform: "1" },
+  ],
+
+  // 22954 — Gandhinagar Capital–Mumbai Central SF Express (en route)
+  "22954": [
+    { station: "Gandhinagar Capital", code: "GNC", km: 0,   sch: "08:00", ai: null,    lower: null,   upper: null,   status: "departed", delay: 0,  platform: "1" },
+    { station: "Ahmedabad Jn",   code: "ADI",  km: 25,   sch: "08:30", ai: null,    lower: null,   upper: null,   status: "departed", delay: 0,  platform: "3" },
+    { station: "Anand Jn",       code: "ANND", km: 71,   sch: "09:05", ai: null,    lower: null,   upper: null,   status: "departed", delay: 0,  platform: "2" },
+    { station: "Vadodara Jn",    code: "BRC",  km: 117,  sch: "09:47", ai: "10:01", lower: "09:58",upper: "10:04",status: "current",  delay: 14, platform: "4" },
+    { station: "Bharuch Jn",     code: "BH",   km: 190,  sch: "10:40", ai: "10:54", lower: "10:51",upper: "10:57",status: "upcoming", delay: 14, platform: "1" },
+    { station: "Surat",          code: "ST",   km: 263,  sch: "11:35", ai: "11:49", lower: "11:46",upper: "11:52",status: "upcoming", delay: 14, platform: "3" },
+    { station: "Mumbai Central", code: "BCT",  km: 494,  sch: "15:15", ai: "15:28", lower: "15:25",upper: "15:31",status: "upcoming", delay: 13, platform: "7" },
+  ],
 };
 
 // ─── Passenger journey timeline (kept for backward compat — train 12951) ─────
