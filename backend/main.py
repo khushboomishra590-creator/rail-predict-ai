@@ -15,11 +15,26 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
-# CORS — allow the React frontend and any ngrok origin
+# CORS — explicit allowed origins
+# Wildcard ("*") cannot be used together with allow_credentials=True —
+# browsers reject that combination. List every real origin explicitly.
 # ---------------------------------------------------------------------------
+ALLOWED_ORIGINS = [
+    # Vercel production
+    "https://rail-predict-ai.vercel.app",
+    # Allow any *.vercel.app preview deployments
+    "https://rail-predict-ai-*.vercel.app",
+    # Local development
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "http://localhost:8081",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://rail-predict-ai.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
