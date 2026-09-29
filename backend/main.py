@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.config import settings
-from backend.routes import eta, trains
+from backend.routes import eta, trains, disruptions
 
 app = FastAPI(
     title=settings.APP_TITLE,
@@ -59,6 +59,7 @@ async def custom_swagger_ui():
 # ---------------------------------------------------------------------------
 app.include_router(trains.router)
 app.include_router(eta.router)
+app.include_router(disruptions.router)
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,15 @@ import { AlertTriangle, Zap, RotateCcw, ChevronRight, FlaskConical } from "lucid
 import { Button } from "@/components/ui/button";
 import { Panel } from "./Primitives";
 import { scenarios, trains, type Scenario } from "@/data/railData";
+import {
+  api,
+  fmtEtaTime,
+  fmtEtaRange,
+  type DisruptionResponse,
+  type ClearDisruptionsResponse,
+  type TrainDisruptionResult,
+  type DisruptionType,
+} from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Advisory = {
@@ -25,6 +34,9 @@ type BeforeAfter = {
   afterDelay: number;
   delta: number;
   impact: string;
+  afterEtaLower?: string;
+  afterEtaUpper?: string;
+  uncertainty?: string | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,83 +74,146 @@ export function ScenarioSandboxView({
   const [customMinutes, setCustomMinutes]   = useState("15");
 
   const selectedTrain = trains[0]; // 12951 as primary target
+  const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
-  function inject(s: Scenario) {
-    if (activeScenarios.includes(s.id)) return;
-    onInject(s.id);
-
-    // compute before / after
-    const beforeEta   = selectedTrain.aiEta;
-    const afterEta    = addMinutes(selectedTrain.aiEta, s.deltaMin);
-    const beforeDelay = selectedTrain.delay;
-    const afterDelay  = selectedTrain.delay + s.deltaMin;
-
-    setResults((prev) => [
-      {
-        scenarioId:   s.id,
-        label:        s.label,
-        trainNumber:  selectedTrain.number,
-        beforeEta,
-        afterEta,
-        beforeDelay,
-        afterDelay,
-        delta:        s.deltaMin,
-        impact:       s.impact,
-      },
-      ...prev.filter((r) => r.scenarioId !== s.id),
-    ]);
-
-    setAdvisories((prev) => [
-      {
-        id:       s.id,
-        time:     now(),
-        section:  s.id === "fog"     ? "NCR: Delhi–Kanpur"
-                : s.id === "freight" ? "WR: BRC–RTM"
-                : s.id === "signal"  ? "NR: MTJ Junction"
-                : "WCR: BPL–RKMP",
-        type:     s.id === "fog" ? "Dense Fog" : s.id === "freight" ? "Freight Conflict" : s.id === "signal" ? "Signal Failure" : "Emergency TSR",
-        severity: s.severity,
-        impact:   s.impact,
-        status:   "active",
-      },
-      ...prev,
-    ]);
+  function now() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   }
 
-  function injectCustom() {
+  async function inject(s: Scenario) {
+    if (activeScenarios.includes(s.id)) return;
+    setLoading(true);
+    setApiError(null);
+    try {
+      const resp: DisruptionResponse = await api.injectDisruption({
+        description: s.label,
+        type: s.id as DisruptionType,
+        severity: "high",
+        section: null,
+        impact_minutes: s.deltaMin,
+      });
+
+      onInject(s.id);
+
+      // Build before/after result from real API response
+      const trainResult = resp.results.find((r) => r.status === "recalculated")
+        ?? resp.results[0];
+
+      if (trainResult) {
+        setResults((prev) => [
+          {
+            scenarioId:   s.id,
+            label:        s.label,
+            trainNumber:  trainResult.train_id,
+            beforeEta:    fmtEtaTime(trainResult.before_eta),
+            afterEta:     fmtEtaTime(trainResult.after_eta),
+            beforeDelay:  0,
+            afterDelay:   trainResult.predicted_delay_minutes ?? 0,
+            delta:        Math.abs(trainResult.eta_change_minutes ?? s.deltaMin),
+            impact:       trainResult.eta_change_minutes != null
+              ? `${trainResult.eta_change_minutes > 0 ? "+" : ""}${trainResult.eta_change_minutes.toFixed(1)} min`
+              : s.impact,
+            afterEtaLower: fmtEtaTime(trainResult.after_eta_lower),
+            afterEtaUpper: fmtEtaTime(trainResult.after_eta_upper),
+            uncertainty:  trainResult.uncertainty_minutes != null
+              ? `±${trainResult.uncertainty_minutes} min` : null,
+          },
+          ...prev.filter((r) => r.scenarioId !== s.id),
+        ]);
+      }
+
+      setAdvisories((prev) => [
+        {
+          id:       s.id,
+          time:     now(),
+          section:  s.id === "fog"     ? "NCR: Delhi–Kanpur"
+                  : s.id === "freight" ? "WR: BRC–RTM"
+                  : s.id === "signal"  ? "NR: MTJ Junction"
+                  : "WCR: BPL–RKMP",
+          type:     s.id === "fog" ? "Dense Fog" : s.id === "freight" ? "Freight Conflict" : s.id === "signal" ? "Signal Failure" : "Emergency TSR",
+          severity: s.severity,
+          impact:   s.impact,
+          status:   "active",
+        },
+        ...prev,
+      ]);
+    } catch (e) {
+      setApiError(`Disruption injection failed: ${String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function injectCustom() {
     if (!customDesc.trim()) return;
     const mins = parseInt(customMinutes) || 10;
-    const afterEta = addMinutes(selectedTrain.aiEta, mins);
+    setLoading(true);
+    setApiError(null);
+    try {
+      const resp: DisruptionResponse = await api.injectDisruption({
+        description: customDesc,
+        type: "custom",
+        severity: customSeverity === "High Severity" ? "high" : customSeverity === "Medium Severity" ? "medium" : "low",
+        section: customSection,
+        impact_minutes: mins,
+      });
 
-    setResults((prev) => [{
-      scenarioId:   `custom-${Date.now()}`,
-      label:        customDesc,
-      trainNumber:  selectedTrain.number,
-      beforeEta:    selectedTrain.aiEta,
-      afterEta,
-      beforeDelay:  selectedTrain.delay,
-      afterDelay:   selectedTrain.delay + mins,
-      delta:        mins,
-      impact:       `+${mins} min`,
-    }, ...prev]);
+      const trainResult = resp.results.find((r) => r.status === "recalculated")
+        ?? resp.results[0];
 
-    setAdvisories((prev) => [{
-      id:       `custom-${Date.now()}`,
-      time:     now(),
-      section:  customSection,
-      type:     customType,
-      severity: customSeverity === "High Severity" ? "critical" : "warning",
-      impact:   `+${mins} min`,
-      status:   "active",
-    }, ...prev]);
+      if (trainResult) {
+        setResults((prev) => [{
+          scenarioId:   `custom-${Date.now()}`,
+          label:        customDesc,
+          trainNumber:  trainResult.train_id,
+          beforeEta:    fmtEtaTime(trainResult.before_eta),
+          afterEta:     fmtEtaTime(trainResult.after_eta),
+          beforeDelay:  0,
+          afterDelay:   trainResult.predicted_delay_minutes ?? mins,
+          delta:        Math.abs(trainResult.eta_change_minutes ?? mins),
+          impact:       trainResult.eta_change_minutes != null
+            ? `${trainResult.eta_change_minutes > 0 ? "+" : ""}${trainResult.eta_change_minutes.toFixed(1)} min`
+            : `+${mins} min`,
+          afterEtaLower: fmtEtaTime(trainResult.after_eta_lower),
+          afterEtaUpper: fmtEtaTime(trainResult.after_eta_upper),
+          uncertainty:  trainResult.uncertainty_minutes != null
+            ? `±${trainResult.uncertainty_minutes} min` : null,
+        }, ...prev]);
+      }
 
-    setCustomDesc("");
+      setAdvisories((prev) => [{
+        id:       `custom-${Date.now()}`,
+        time:     now(),
+        section:  customSection,
+        type:     customType,
+        severity: customSeverity === "High Severity" ? "critical" : "warning",
+        impact:   `+${mins} min`,
+        status:   "active",
+      }, ...prev]);
+
+      setCustomDesc("");
+    } catch (e) {
+      setApiError(`Custom disruption failed: ${String(e)}`);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function clearAll() {
-    onClear();
-    setAdvisories((prev) => prev.map((a) => ({ ...a, status: "cleared" as const })));
-    setResults([]);
+  async function clearAll() {
+    setLoading(true);
+    setApiError(null);
+    try {
+      await api.clearDisruptions();
+      onClear();
+      setAdvisories((prev) => prev.map((a) => ({ ...a, status: "cleared" as const })));
+      setResults([]);
+    } catch (e) {
+      setApiError(`Clear failed: ${String(e)}`);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -154,10 +229,16 @@ export function ScenarioSandboxView({
             Inject real-world operational bottlenecks to test the dynamic ML model's downstream ETA recalculation.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={clearAll} className="gap-1.5">
-          <RotateCcw className="size-3.5" /> Clear All Active Disruptions
+        <Button variant="outline" size="sm" onClick={clearAll} disabled={loading} className="gap-1.5">
+          <RotateCcw className={`size-3.5 ${loading ? "animate-spin" : ""}`} /> Clear All Active Disruptions
         </Button>
       </div>
+
+      {apiError && (
+        <div className="rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {apiError}
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[1fr_.55fr]">
         {/* ── Left column ── */}
@@ -172,7 +253,7 @@ export function ScenarioSandboxView({
                   <button
                     key={s.id}
                     onClick={() => inject(s)}
-                    disabled={active}
+                    disabled={active || loading}
                     className={`group relative flex flex-col gap-2 border p-4 text-left transition-all ${
                       active
                         ? "border-destructive/40 bg-destructive/5 opacity-80"
@@ -257,11 +338,11 @@ export function ScenarioSandboxView({
                   min={1} max={120}
                 />
               </div>
-              <Button className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90" onClick={injectCustom}>
-                <Zap className="size-4" /> Inject Disruption &amp; Recalculate Network ETAs
+              <Button className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90" onClick={injectCustom} disabled={loading}>
+                <Zap className="size-4" /> {loading ? "Recalculating via M3…" : "Inject Disruption & Recalculate Network ETAs"}
               </Button>
-              <Button variant="outline" className="w-full gap-2 border-destructive/30 text-destructive hover:bg-destructive/5" onClick={clearAll}>
-                <RotateCcw className="size-4" /> Clear All Active Disruptions (Restore Optimal Schedule)
+              <Button variant="outline" className="w-full gap-2 border-destructive/30 text-destructive hover:bg-destructive/5" onClick={clearAll} disabled={loading}>
+                <RotateCcw className={`size-4 ${loading ? "animate-spin" : ""}`} /> Clear All Active Disruptions (Restore Optimal Schedule)
               </Button>
             </div>
           </Panel>
@@ -298,7 +379,13 @@ export function ScenarioSandboxView({
                     </div>
                     <p className="mt-2 text-[10px] text-muted-foreground">
                       Train {r.trainNumber} · ETA recalculated by Network-aware XGBoost v2
+                      {r.uncertainty && <> · Uncertainty: <span className="text-warning font-mono">{r.uncertainty}</span></>}
                     </p>
+                    {r.afterEtaLower && r.afterEtaUpper && r.afterEtaLower !== "Not available" && (
+                      <p className="mt-1 text-[10px] font-mono text-muted-foreground">
+                        After range: <span className="text-live">{r.afterEtaLower} – {r.afterEtaUpper}</span>
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

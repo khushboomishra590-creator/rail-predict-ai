@@ -221,6 +221,30 @@ class Section(Base):
 
 
 # ---------------------------------------------------------------------------
+# disruptions
+# ---------------------------------------------------------------------------
+class Disruption(Base):
+    __tablename__ = "disruptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    disruption_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    # One of: dense_fog | freight_conflict | signal_failure | emergency_tsr | custom
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    section_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # e.g. "SEC-MTJ-AGC" — display only, not a FK so custom entries work freely
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
+    # high | medium | low
+    impact_minutes: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    cleared_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+# ---------------------------------------------------------------------------
 # train_runs
 # ---------------------------------------------------------------------------
 class TrainRun(Base):

@@ -137,9 +137,91 @@ export const api = {
     }
     return res.json() as Promise<MovementUpdateResponse>;
   },
+
+  /** POST /api/disruptions — inject disruption, recalculate ETAs via M3 */
+  injectDisruption: async (payload: DisruptionRequest): Promise<DisruptionResponse> => {
+    const res = await fetch(`${BASE}/api/disruptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`POST /api/disruptions → HTTP ${res.status}`);
+    return res.json() as Promise<DisruptionResponse>;
+  },
+
+  /** POST /api/disruptions/clear — deactivate all disruptions, restore baseline ETAs */
+  clearDisruptions: async (): Promise<ClearDisruptionsResponse> => {
+    const res = await fetch(`${BASE}/api/disruptions/clear`, { method: "POST" });
+    if (!res.ok) throw new Error(`POST /api/disruptions/clear → HTTP ${res.status}`);
+    return res.json() as Promise<ClearDisruptionsResponse>;
+  },
+
+  /** GET /api/disruptions — list currently active disruptions */
+  getActiveDisruptions: () =>
+    apiFetch<ActiveDisruptionsResponse>("/api/disruptions"),
 };
 
-// ── Display helpers ───────────────────────────────────────────────────────────
+// ── Disruptions ───────────────────────────────────────────────────────────────
+
+export type DisruptionType =
+  | "dense_fog"
+  | "freight_conflict"
+  | "signal_failure"
+  | "emergency_tsr"
+  | "custom";
+
+export type DisruptionSeverity = "high" | "medium" | "low";
+
+export interface DisruptionRequest {
+  description: string;
+  type: DisruptionType;
+  severity?: DisruptionSeverity;
+  section?: string | null;
+  impact_minutes?: number;
+}
+
+export interface DisruptionInfo {
+  id: number;
+  type: string;
+  description: string;
+  severity: string;
+  section: string | null;
+  impact_minutes: number;
+  is_active: boolean;
+  created_at: string;
+  cleared_at: string | null;
+}
+
+export interface TrainDisruptionResult {
+  train_id: string;
+  status: string;
+  before_eta: string | null;
+  after_eta: string | null;
+  before_eta_lower: string | null;
+  before_eta_upper: string | null;
+  after_eta_lower: string | null;
+  after_eta_upper: string | null;
+  eta_change_minutes: number | null;
+  predicted_delay_minutes: number | null;
+  uncertainty_minutes: number | null;
+  reason: string | null;
+}
+
+export interface DisruptionResponse {
+  disruption: DisruptionInfo;
+  affected_trains: string[];
+  results: TrainDisruptionResult[];
+}
+
+export interface ClearDisruptionsResponse {
+  cleared_count: number;
+  results: TrainDisruptionResult[];
+}
+
+export interface ActiveDisruptionsResponse {
+  disruptions: DisruptionInfo[];
+  total: number;
+}
 
 /**
  * Convert an ISO-8601 datetime string from the API to "HH:MM" (IST display).
