@@ -231,7 +231,7 @@ DEBUG=false
 
 ## Team
 
-Built by **Team SIH-26028** for Smart India Hackathon 2026.
+Built by **Team DhrishtiX** for Smart India Hackathon 2026.
 
 ---
 
